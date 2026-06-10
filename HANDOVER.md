@@ -4,15 +4,27 @@
 
 ## Nuläge (2026-06-10)
 
-Grundappen + **seed-frasposter** är klara enligt spec, alla tester gröna.
+Grundappen + **seed-frasposter** + **uppgraderingsväg** är klara enligt
+spec, alla tester gröna.
 
-- `node build.mjs` → `dist/valv.html` (~66 kB, varav ~14 kB BIP39-lista).
+- `node build.mjs` → `dist/valv.html` (~74 kB, varav ~14 kB BIP39-lista).
 - `node test/roundtrip.mjs` → 12/12 gröna (krypto, seed-round-trip,
   bakåtkompatibilitet, paste-splitting, BIP39-validering).
-- `node test/e2e.mjs` → 34/34 gröna i riktig Chromium (kräver
-  playwright-core, hoppas annars över): två fulla spara→öppna-generationer
-  inkl. seed-post (paste-skapande, dold som default, Visa ger rätt
-  ordning, orden aldrig i DOM före Visa, aldrig i klartext i filen).
+- `node test/e2e.mjs` → 48/48 gröna i riktig Chromium (kräver
+  playwright-core, hoppas annars över): två fulla spara→öppna-generationer,
+  seed-flödet, export→import i nytt skal, uppgradera-från-fil i nytt skal
+  (fel lösenord + rätt) med round-trip av det uppgraderade valvet.
+
+## Uppgraderingsväg (Inställningar)
+
+- **Uppgradera från fil (rekommenderas):** läser `#vault-data` ur en vald
+  äldre valv.html som ren TEXT (renderas/körs aldrig), validerar
+  versionfältet, ber om den filens master-lösenord, dekrypterar i minnet.
+- **Importera JSON:** läser okrypterad export med strukturvalidering.
+- Båda går via `takeInEntries`: normalizeEntry, val slå ihop/ersätt
+  (ersätt kräver extra bekräftelse), id-krockar ⇒ nytt id (behåll båda).
+- Filval via dold `input type=file` (`pickFile` i app.js) — fungerar på
+  file:// i alla webbläsare, till skillnad från showOpenFilePicker.
 
 ## Posttyper
 
@@ -39,15 +51,10 @@ Seed-fält: `wallet`, `words` (12/15/18/21/24 st), `passphrase`,
   crypto.js), genererad från officiella bitcoin/bips english.txt,
   SHA256 2f5eed53…dbda, verifierad ord-för-ord vid genereringen.
   Validering varnar bara — blockerar aldrig sparande.
-- **E2E-testfrasen är medvetet inte alfabetisk**: BIP39-listan ligger
-  alfabetiskt i appkoden, så en alfabetisk fras vore en substring av
-  filen och klartextkontrollerna bleve meningslösa.
 - **Krypterad spegling till DOM** (`#vault-data`) vid skapa/spara/lås gör
   att osparade ändringar överlever lås/upplås; dirty-flaggan överlever
   också. CSP injiceras av build.mjs. `crypto.js`/`seed.js` är dubbelmiljö —
   bygget strippar ESM-export-raden; inga import/export mitt i filerna.
-- I headless Chromium avvisar `showSaveFilePicker` med `AbortError`;
-  e2e tar bort API:t för att testa nedladdnings-fallbacken.
 
 ## Senaste commits
 
@@ -60,12 +67,22 @@ Seed-fält: `wallet`, `words` (12/15/18/21/24 st), `passphrase`,
 7. Seed-datamodell: BIP39-ordlista, hjälpfunktioner och Node-tester
 8. Seed-UI: numrerad ordgrid, maskering, paste-splitting och badge
 9. Seed: E2E-tester och uppdaterad hotmodell i README
+10. Uppgraderingsväg: Importera JSON och Uppgradera från fil
+11. Uppgradering: E2E-tester och README-dokumentation
+
+## Kända testfallgropar (E2E)
+
+- Merge-dialogens close-händelse kommer FÖRE renderList — vänta på
+  `#entry-list li`-antalet (waitForFunction), inte på att dialogen stängts.
+- E2E-testfrasen får inte vara alfabetisk (BIP39-listan ligger
+  alfabetiskt inlinad i filen — en alfabetisk fras vore en substring).
+- I headless avvisar `showSaveFilePicker` med AbortError; e2e tar bort
+  API:t för att testa nedladdnings-fallbacken.
 
 ## Nästa steg (förslag, inget påbörjat)
 
 - Manuell körning av README-checklistan i Firefox/Safari (E2E körs i
   Chromium; FS Access-vägen är bara manuellt testbar).
-- Ev. import av exporterad JSON (motsats till exporten).
 - Ev. BIP39-checksumvalidering av hela frasen (sista ordet innehåller
   checksumbitar) — kräver SHA-256 över entropin, görbart med WebCrypto;
   i dag valideras bara ord-för-ord mot listan.

@@ -202,6 +202,23 @@ const remasked = await page.evaluate(() =>
 check('gen3: Dölj tömmer fälten igen', remasked);
 await page.click('#seed-cancel');
 
+// ---- Export (underlag för import-testet): 3 poster i detta läge
+await page.click('#settings-btn');
+await page.waitForSelector('#settings-dialog[open]');
+await page.click('#export-btn');
+await page.waitForSelector('#confirm-dialog[open]');
+check('gen3: exportvarningen nämner seed-fraser',
+  (await page.textContent('#confirm-message')).includes('SEED-FRASER'));
+const exportDl = page.waitForEvent('download');
+await page.click('#confirm-ok');
+const exportFile = path.join(tmp, 'valv-export.json');
+await (await exportDl).saveAs(exportFile);
+const exported = JSON.parse(readFileSync(exportFile, 'utf8'));
+check('gen3: exporten innehåller 3 poster med intakta seed-ord',
+  exported.entries.length === 3
+  && exported.entries.find((e) => e.type === 'seed').words.join(' ') === PHRASE);
+await page.click('#settings-close');
+
 // lås/upplås i samma session med osparad ändring
 await page.click('#new-login-btn');
 await page.fill('#entry-title', 'Wifi');
@@ -226,6 +243,97 @@ await page.click('#gen-regenerate');
 const generated2 = await page.inputValue('#gen-output');
 check('gen3: nytt lösenord vid omgenerering', generated2 !== generated && generated2.length === 20);
 await page.click('#gen-close');
+await page.close();
+
+// Hjälpare: skapa ett nytt tomt appskal och lås upp det med ett nytt lösenord
+const PW2 = 'nytt-skal-lösenord-9!';
+async function freshShell(file) {
+  copyFileSync(DIST, file);
+  const p = await ctx.newPage();
+  await p.goto('file://' + file);
+  await p.fill('#create-password', PW2);
+  await p.fill('#create-password2', PW2);
+  await p.click('#create-btn');
+  await p.waitForSelector('#main-screen', { state: 'visible' });
+  return p;
+}
+
+// ---- Lösning A: importera JSON-exporten i ett nytt tomt skal
+page = await freshShell(path.join(tmp, 'shell-a.html'));
+await page.click('#settings-btn');
+const [chooserA] = await Promise.all([
+  page.waitForEvent('filechooser'),
+  page.click('#import-btn'),
+]);
+await chooserA.setFiles(exportFile);
+await page.waitForSelector('#merge-dialog[open]');
+check('import: merge-dialogen visar antal poster',
+  (await page.textContent('#merge-message')).includes('3 poster'));
+await page.click('#merge-merge');
+// dialogens close-händelse kommer före renderList — vänta på listan, inte dialogen
+await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
+check('import: alla 3 poster togs in', true);
+const importedTitles = await page.locator('.entry-title').allTextContents();
+check('import: titlarna är identiska', importedTitles.join('|') === 'Banken <script>alert(1)</script>|E-post|Ledger');
+await page.click('#entry-list li:has(.badge)');
+await page.waitForSelector('#seed-dialog[open]');
+await page.click('#seed-toggle');
+const importedWords = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
+check('import: seed-orden identiska i rätt ordning', importedWords.join(' ') === PHRASE);
+check('import: wallet identisk', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
+await page.click('#seed-cancel');
+await page.click('#entry-list li:nth-child(2)'); // E-post
+await page.waitForSelector('#entry-dialog[open]');
+check('import: login-lösenordet identiskt', (await page.inputValue('#entry-password')) === 'annat-lösenord');
+await page.click('#entry-cancel');
+await page.close();
+
+// ---- Lösning B: uppgradera från gammal valvfil i ett nytt tomt skal
+page = await freshShell(path.join(tmp, 'shell-b.html'));
+await page.click('#settings-btn');
+const [chooserB] = await Promise.all([
+  page.waitForEvent('filechooser'),
+  page.click('#upgrade-btn'),
+]);
+await chooserB.setFiles(gen3); // gammal fil, krypterad med PW (inte PW2)
+await page.waitForSelector('#upgrade-dialog[open]');
+check('uppgradera: dialogen visar filnamnet',
+  (await page.textContent('#upgrade-filename')).includes('gen3.html'));
+
+await page.fill('#upgrade-password', 'fel-lösenord');
+await page.click('#upgrade-unlock');
+await page.waitForSelector('#upgrade-error', { state: 'visible' });
+check('uppgradera: fel lösenord ger fel med ny chans', true);
+
+await page.fill('#upgrade-password', PW);
+await page.click('#upgrade-unlock');
+await page.waitForSelector('#merge-dialog[open]');
+check('uppgradera: merge-dialogen visar antal poster',
+  (await page.textContent('#merge-message')).includes('3 poster'));
+await page.click('#merge-merge');
+await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
+check('uppgradera: alla 3 poster togs in', true);
+
+// round-trip: spara det uppgraderade valvet och öppna den sparade filen
+const genB = path.join(tmp, 'gen-b.html');
+await saveAndCapture(page, genB);
+await page.close();
+
+page = await ctx.newPage();
+await page.goto('file://' + genB);
+await page.fill('#unlock-password', PW2); // det NYA skalets lösenord
+await page.click('#unlock-btn');
+await page.waitForSelector('#main-screen', { state: 'visible' });
+check('uppgradera: round-trip — sparad fil öppnas med nya lösenordet och 3 poster',
+  (await page.locator('#entry-list li').count()) === 3);
+await page.click('#entry-list li:has(.badge)');
+await page.waitForSelector('#seed-dialog[open]');
+await page.click('#seed-toggle');
+const upgradedWords = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
+check('uppgradera: seed-orden överlevde uppgradering + round-trip', upgradedWords.join(' ') === PHRASE);
+await page.click('#seed-cancel');
 
 await page.close();
 await browser.close();

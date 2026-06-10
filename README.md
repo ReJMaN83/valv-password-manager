@@ -56,6 +56,25 @@ in en seed-fras på en webbsida — Valv varnar när frasen kopieras och
 rensar urklippet efter 30 s, men urklippshistorik kan finnas kvar i ditt
 operativsystem.
 
+## Uppgradera till en ny version av appen
+
+Ett nytt nedladdat `valv.html` är ett tomt skal — din data ligger i din
+gamla fil. Så här flyttar du in den:
+
+1. Ladda ner det nya `valv.html`-skalet och öppna det.
+2. Skapa ett valv (välj master-lösenord — gärna samma som tidigare).
+3. Öppna *Inställningar → Uppgradera från fil…* och peka på din **gamla**
+   `valv.html`.
+4. Ange den gamla filens master-lösenord. Välj *Slå ihop* eller *Ersätt allt*.
+5. Klicka **Spara** och ersätt din gamla fil med den nya.
+
+”Uppgradera från fil” läser den gamla filens krypterade datablock direkt
+och dekrypterar i minnet — ingen okrypterad data hamnar någonsin på disk.
+Det är därför att föredra framför JSON-vägen (*Export* i gamla filen →
+*Importera JSON* i den nya), som bara bör användas för flytt till/från
+andra program. Vid *Slå ihop* behålls poster med krockande id som
+dubbletter — inget skrivs över tyst.
+
 ## Backup
 
 Backup = **kopiera filen**. Lägg `valv.html` på t.ex. Google Drive, ett
@@ -156,6 +175,11 @@ serialisering är stabil mellan generationer, vilket E2E-testet verifierar
       ord ger röd kant men går att spara.
 - [ ] **Gammalt valv:** en fil sparad före seed-stödet låses upp och
       sparas om utan att poster förloras.
+- [ ] **Uppgradera från fil:** nytt tomt skal + gammal fil med data →
+      fel lösenord ger fel med ny chans, rätt lösenord tar in posterna,
+      spara → den sparade filen fungerar (round-trip).
+- [ ] **Importera JSON:** export från ett valv tas in i ett annat;
+      ogiltig fil ger tydligt fel i stället för krasch.
 - [ ] **Byt lösenord:** kräver rätt nuvarande; gamla filen på disk öppnas
       med gamla lösenordet, nysparad fil med det nya.
 - [ ] **Export:** varningsdialog visas; JSON innehåller posterna.
