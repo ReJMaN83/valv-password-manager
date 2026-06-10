@@ -16,8 +16,142 @@
   <div class="lock-box">
     <h1>Valv</h1>
     <p class="tagline">Krypterad lösenordshanterare i en fil</p>
+
+    <form id="unlock-form" class="hidden">
+      <label for="unlock-password">Master-lösenord</label>
+      <input type="password" id="unlock-password" autocomplete="off">
+      <p id="unlock-error" class="error hidden">Fel lösenord. Försök igen.</p>
+      <button type="submit" class="primary" id="unlock-btn">Lås upp</button>
+    </form>
+
+    <form id="create-form" class="hidden">
+      <p>Välkommen! Det här valvet är tomt. Välj ett master-lösenord för att skapa det.</p>
+      <label for="create-password">Master-lösenord (minst 8 tecken)</label>
+      <input type="password" id="create-password" autocomplete="off">
+      <div class="strength"><div id="strength-bar"></div></div>
+      <p id="strength-label" class="small">&nbsp;</p>
+      <label for="create-password2">Upprepa lösenordet</label>
+      <input type="password" id="create-password2" autocomplete="off">
+      <p id="create-error" class="error hidden"></p>
+      <p class="warn small">Glömt master-lösenord = datan är borta för alltid. Det finns ingen återställning.</p>
+      <button type="submit" class="primary" id="create-btn">Skapa valv</button>
+    </form>
   </div>
 </main>
+
+<div id="main-screen" class="screen hidden">
+  <header>
+    <div class="header-row">
+      <h1>Valv</h1>
+      <span id="dirty-indicator" class="dirty hidden" title="Ändringarna är inte sparade till fil">&#9679; osparat</span>
+      <div class="toolbar">
+        <button id="save-btn" class="primary">Spara</button>
+        <button id="lock-btn">Lås</button>
+      </div>
+    </div>
+    <div class="header-row">
+      <input type="search" id="search" placeholder="Sök titel, användarnamn eller URL…">
+      <div class="toolbar">
+        <button id="new-entry-btn" class="primary">+ Ny post</button>
+        <button id="generator-btn">Generator</button>
+        <button id="settings-btn">Inställningar</button>
+      </div>
+    </div>
+  </header>
+  <ul id="entry-list"></ul>
+  <p id="empty-hint" class="small center hidden"></p>
+</div>
+
+<dialog id="entry-dialog">
+  <form id="entry-form">
+    <h2 id="entry-dialog-title">Ny post</h2>
+    <label for="entry-title">Titel</label>
+    <input id="entry-title" type="text" required>
+    <label for="entry-username">Användarnamn</label>
+    <div class="input-row">
+      <input id="entry-username" type="text" autocomplete="off">
+      <button type="button" id="entry-copy-username" title="Kopiera användarnamn">Kopiera</button>
+    </div>
+    <label for="entry-password">Lösenord</label>
+    <div class="input-row">
+      <input id="entry-password" type="password" autocomplete="off">
+      <button type="button" id="entry-toggle-password" title="Visa eller dölj lösenordet">Visa</button>
+      <button type="button" id="entry-generate" title="Öppna lösenordsgeneratorn">Generera</button>
+      <button type="button" id="entry-copy-password" title="Kopiera lösenord">Kopiera</button>
+    </div>
+    <label for="entry-url">URL</label>
+    <input id="entry-url" type="text" autocomplete="off">
+    <label for="entry-notes">Anteckningar</label>
+    <textarea id="entry-notes" rows="4"></textarea>
+    <div class="dialog-buttons">
+      <button type="button" id="entry-delete" class="danger hidden">Ta bort</button>
+      <span class="spacer"></span>
+      <button type="button" id="entry-cancel">Avbryt</button>
+      <button type="submit" class="primary">Spara post</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="generator-dialog">
+  <h2>Lösenordsgenerator</h2>
+  <label for="gen-length">Längd: <span id="gen-length-value">20</span></label>
+  <input type="range" id="gen-length" min="8" max="64" value="20">
+  <div class="gen-options">
+    <label><input type="checkbox" id="gen-upper" checked> Versaler (A–Z)</label>
+    <label><input type="checkbox" id="gen-lower" checked> Gemener (a–z)</label>
+    <label><input type="checkbox" id="gen-digits" checked> Siffror (0–9)</label>
+    <label><input type="checkbox" id="gen-symbols" checked> Symboler (!#%…)</label>
+  </div>
+  <div class="input-row">
+    <input type="text" id="gen-output" readonly>
+    <button type="button" id="gen-regenerate" title="Generera ett nytt lösenord">Nytt</button>
+  </div>
+  <div class="dialog-buttons">
+    <button type="button" id="gen-copy">Kopiera</button>
+    <span class="spacer"></span>
+    <button type="button" id="gen-use" class="primary hidden">Använd i posten</button>
+    <button type="button" id="gen-close">Stäng</button>
+  </div>
+</dialog>
+
+<dialog id="settings-dialog">
+  <h2>Inställningar</h2>
+  <section>
+    <label for="autolock-minutes">Auto-lås efter inaktivitet (minuter, 1–30)</label>
+    <input type="number" id="autolock-minutes" min="1" max="30">
+  </section>
+  <section>
+    <h3>Byt master-lösenord</h3>
+    <label for="cp-current">Nuvarande lösenord</label>
+    <input type="password" id="cp-current" autocomplete="off">
+    <label for="cp-new">Nytt lösenord (minst 8 tecken)</label>
+    <input type="password" id="cp-new" autocomplete="off">
+    <label for="cp-new2">Upprepa nytt lösenord</label>
+    <input type="password" id="cp-new2" autocomplete="off">
+    <p id="cp-message" class="small hidden"></p>
+    <button type="button" id="cp-submit">Byt lösenord</button>
+  </section>
+  <section>
+    <h3>Export</h3>
+    <p class="small">Laddar ner alla poster som <em>okrypterad</em> JSON, t.ex. för flytt till en annan hanterare.</p>
+    <button type="button" id="export-btn" class="danger">Exportera okrypterat…</button>
+  </section>
+  <div class="dialog-buttons">
+    <span class="spacer"></span>
+    <button type="button" id="settings-close" class="primary">Stäng</button>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog">
+  <p id="confirm-message"></p>
+  <div class="dialog-buttons">
+    <span class="spacer"></span>
+    <button type="button" id="confirm-cancel">Avbryt</button>
+    <button type="button" id="confirm-ok" class="danger">OK</button>
+  </div>
+</dialog>
+
+<div id="toast" class="hidden" role="status"></div>
 
 <script src="crypto.js"></script>
 <script src="app.js"></script>
