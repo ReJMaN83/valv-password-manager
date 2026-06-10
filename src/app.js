@@ -512,5 +512,141 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 // ============================================================
+// Lösenordsgenerator
+const GEN_SETS = {
+  upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  lower: 'abcdefghijklmnopqrstuvwxyz',
+  digits: '0123456789',
+  symbols: '!#$%&()*+,-./:;<=>?@[]^_{|}~',
+};
+
+// Slump enbart via crypto.getRandomValues, med rejection sampling så att
+// modulo-operationen inte ger vissa tecken högre sannolikhet.
+function generatePassword(length, pool) {
+  const limit = Math.floor(256 / pool.length) * pool.length;
+  let out = '';
+  while (out.length < length) {
+    for (const byte of randomBytes(length)) {
+      if (byte < limit && out.length < length) out += pool[byte % pool.length];
+    }
+  }
+  return out;
+}
+
+function genPool() {
+  let pool = '';
+  if ($('gen-upper').checked) pool += GEN_SETS.upper;
+  if ($('gen-lower').checked) pool += GEN_SETS.lower;
+  if ($('gen-digits').checked) pool += GEN_SETS.digits;
+  if ($('gen-symbols').checked) pool += GEN_SETS.symbols;
+  return pool;
+}
+
+function regenerate() {
+  const pool = genPool();
+  $('gen-length-value').textContent = $('gen-length').value;
+  $('gen-output').value = pool
+    ? generatePassword(Number($('gen-length').value), pool)
+    : '';
+  if (!pool) toast('Välj minst en teckentyp.');
+}
+
+function openGenerator(forEntry) {
+  $('gen-use').classList.toggle('hidden', !forEntry);
+  regenerate();
+  $('generator-dialog').showModal();
+}
+
+$('generator-btn').addEventListener('click', () => openGenerator(false));
+$('entry-generate').addEventListener('click', () => openGenerator(true));
+$('gen-length').addEventListener('input', regenerate);
+for (const id of ['gen-upper', 'gen-lower', 'gen-digits', 'gen-symbols']) {
+  $(id).addEventListener('change', regenerate);
+}
+$('gen-regenerate').addEventListener('click', regenerate);
+$('gen-copy').addEventListener('click', () => copySecret($('gen-output').value, 'Lösenord'));
+$('gen-use').addEventListener('click', () => {
+  $('entry-password').value = $('gen-output').value;
+  $('generator-dialog').close();
+});
+$('gen-close').addEventListener('click', () => $('generator-dialog').close());
+$('generator-dialog').addEventListener('close', () => { $('gen-output').value = ''; });
+
+// ============================================================
+// Inställningar: auto-lås, byt master-lösenord, export
+$('settings-btn').addEventListener('click', () => {
+  $('autolock-minutes').value = state.settings.autoLockMinutes;
+  $('cp-message').classList.add('hidden');
+  $('settings-dialog').showModal();
+});
+$('settings-close').addEventListener('click', () => $('settings-dialog').close());
+$('settings-dialog').addEventListener('close', () => {
+  for (const id of ['cp-current', 'cp-new', 'cp-new2']) $(id).value = '';
+});
+
+$('autolock-minutes').addEventListener('change', () => {
+  const minutes = Math.min(30, Math.max(1, Number($('autolock-minutes').value) || 5));
+  $('autolock-minutes').value = minutes;
+  if (minutes !== state.settings.autoLockMinutes) {
+    state.settings.autoLockMinutes = minutes;
+    markDirty();
+    resetAutoLock();
+    toast(`Auto-lås satt till ${minutes} min. Glöm inte att spara.`);
+  }
+});
+
+$('cp-submit').addEventListener('click', async () => {
+  const message = $('cp-message');
+  const show = (text, isError) => {
+    message.textContent = text;
+    message.classList.remove('hidden');
+    message.classList.toggle('error', isError);
+  };
+  const current = $('cp-current').value;
+  const next = $('cp-new').value;
+  if (next.length < 8) return show('Det nya lösenordet måste vara minst 8 tecken.', true);
+  if (next !== $('cp-new2').value) return show('De nya lösenorden matchar inte.', true);
+
+  const btn = $('cp-submit');
+  btn.disabled = true;
+  btn.textContent = 'Byter…';
+  try {
+    // Verifiera nuvarande lösenord mot den krypterade kontrollsträngen.
+    try {
+      const candidate = await deriveKey(current, state.salt, state.iterations);
+      await decryptWithKey(candidate, state.verifier.nonce, state.verifier.ciphertext);
+    } catch {
+      return show('Fel nuvarande lösenord.', true);
+    }
+    // Omkryptera med NYTT salt och dagens standard-iterationsantal.
+    const salt = randomBytes(SALT_BYTES);
+    const key = await deriveKey(next, salt, KDF_ITERATIONS_DEFAULT);
+    state.salt = salt;
+    state.key = key;
+    state.iterations = KDF_ITERATIONS_DEFAULT;
+    state.verifier = await encryptWithKey(key, 'valv-verifier');
+    await updateLiveVaultBlock();
+    markDirty();
+    for (const id of ['cp-current', 'cp-new', 'cp-new2']) $(id).value = '';
+    show('Lösenordet är bytt. Glöm inte att spara valvet till fil.', false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Byt lösenord';
+  }
+});
+
+$('export-btn').addEventListener('click', async () => {
+  const ok = await confirmDialog(
+    'Exporten är HELT OKRYPTERAD — alla lösenord hamnar i klartext i filen. '
+    + 'Spara den bara på en säker plats och radera den så fort du är klar. Fortsätt?',
+    'Exportera okrypterat');
+  if (!ok) return;
+  const json = JSON.stringify(
+    { entries: state.entries, meta: { exported: new Date().toISOString() } },
+    null, 2);
+  downloadFile('valv-export.json', json, 'application/json');
+});
+
+// ============================================================
 // Start
 init();
