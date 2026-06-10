@@ -201,13 +201,37 @@ function unknownSeedWords(words) {
   return words.filter((word) => word !== '' && !BIP39_SET.has(word));
 }
 
-// Backward compatibility: entries from vaults created before seed support
-// lack the type field and are treated as logins — without losing any fields.
+// Backward compatibility (this and the helpers below are generic entry
+// helpers that live here with the other pure dual-environment logic):
+// entries from vaults created before seed support lack the type field and
+// are treated as logins; entries from before the trash (v1.2) lack the
+// deleted field and are treated as not deleted. No fields are ever lost.
 function normalizeEntry(entry) {
-  return entry.type ? entry : { ...entry, type: 'login' };
+  const typed = entry.type ? entry : { ...entry, type: 'login' };
+  return typed.deleted === undefined ? { ...typed, deleted: false } : typed;
+}
+
+const TRASH_RETENTION_DAYS = 30;
+
+// Entries deleted more than TRASH_RETENTION_DAYS ago are removed for good.
+// Runs at unlock; pure so the Node tests can drive it with a mocked clock.
+// A deleted entry without a parseable deletedAt is kept (its age is unknown).
+function purgeExpiredTrash(entries, nowMs) {
+  const cutoff = nowMs - TRASH_RETENTION_DAYS * 86400000;
+  return entries.filter((entry) => {
+    if (!entry.deleted || !entry.deletedAt) return true;
+    const deletedAt = new Date(entry.deletedAt).getTime();
+    return Number.isNaN(deletedAt) || deletedAt >= cutoff;
+  });
+}
+
+// Split pasted recovery codes on lines and whitespace.
+function splitRecoveryCodes(text) {
+  return String(text).split(/\s+/).map((code) => code.trim()).filter(Boolean);
 }
 
 export {
   BIP39_WORDS, BIP39_SET, SEED_WORD_COUNTS,
   isValidSeedWordCount, parseSeedPhrase, unknownSeedWords, normalizeEntry,
+  TRASH_RETENTION_DAYS, purgeExpiredTrash, splitRecoveryCodes,
 };

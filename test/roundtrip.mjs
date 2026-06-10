@@ -10,6 +10,7 @@ import {
 import {
   BIP39_WORDS, BIP39_SET, SEED_WORD_COUNTS,
   isValidSeedWordCount, parseSeedPhrase, unknownSeedWords, normalizeEntry,
+  TRASH_RETENTION_DAYS, purgeExpiredTrash, splitRecoveryCodes,
 } from '../src/seed.js';
 import { STRINGS } from '../src/i18n.js';
 import { base32Decode, parseTotpInput, generateTotp, totpRemainingSeconds } from '../src/totp.js';
@@ -126,7 +127,8 @@ test('round-trip with an API key entry', async () => {
   const decrypted = JSON.parse(await decryptVault('password', blob));
   assert.deepEqual(decrypted.entries[0], apikeyEntry);
   // normalizeEntry must leave explicitly typed entries untouched
-  assert.deepEqual(decrypted.entries.map(normalizeEntry)[0], apikeyEntry);
+  // (apart from defaulting the v1.2 deleted flag)
+  assert.deepEqual(decrypted.entries.map(normalizeEntry)[0], { ...apikeyEntry, deleted: false });
 });
 
 test('mixed vault with all three entry types survives open/save/reopen', async () => {
@@ -148,8 +150,8 @@ test('mixed vault with all three entry types survives open/save/reopen', async (
   assert.equal(opened[0].type, 'login');   // untyped entry normalized
   assert.equal(opened[1].type, 'seed');    // explicit types untouched
   assert.equal(opened[2].type, 'apikey');
-  assert.deepEqual(opened[1], entries[1]);
-  assert.deepEqual(opened[2], entries[2]);
+  assert.deepEqual(opened[1], { ...entries[1], deleted: false });
+  assert.deepEqual(opened[2], { ...entries[2], deleted: false });
 
   // re-save and reopen — no changes, no data loss
   const blob2 = await encryptVault('password', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
@@ -166,15 +168,78 @@ test('backward compatibility: vault from an old version (no type field)', async 
   };
   const blob = await encryptVault('password', JSON.stringify({ entries: [oldEntry], meta: {} }), FAST_ITER);
 
-  // open: normalization assigns type "login" without losing any field
+  // open: normalization assigns type "login" and deleted=false without
+  // losing any field
   const opened = JSON.parse(await decryptVault('password', blob)).entries.map(normalizeEntry);
   assert.equal(opened[0].type, 'login');
-  assert.deepEqual(opened[0], { ...oldEntry, type: 'login' });
+  assert.deepEqual(opened[0], { ...oldEntry, type: 'login', deleted: false });
 
   // re-save and open again — still no data loss
   const blob2 = await encryptVault('password', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
   const reopened = JSON.parse(await decryptVault('password', blob2)).entries.map(normalizeEntry);
   assert.deepEqual(reopened, opened);
+});
+
+test('mixed vault with all FIVE entry types survives open/save/reopen', async () => {
+  const stamp = { created: '2026-06-10T00:00:00Z', modified: '2026-06-10T00:00:00Z' };
+  const entries = [
+    { id: 'b0000000-0000-4000-8000-000000000001', type: 'login', title: 'Mail',
+      username: 'alice', password: 'pw', url: '', notes: '',
+      totpSecret: 'JBSWY3DPEHPK3PXP', totpPeriod: 30, totpDigits: 6, totpAlgorithm: 'SHA1', ...stamp },
+    { id: 'b0000000-0000-4000-8000-000000000002', type: 'seed', title: 'Wallet',
+      wallet: 'Trezor', words: parseSeedPhrase('legal winner thank year wave sausage worth useful legal winner thank yellow'),
+      passphrase: '', derivation: '', notes: '', ...stamp },
+    { id: 'b0000000-0000-4000-8000-000000000003', type: 'apikey', title: 'CI',
+      service: 'Example CI', key: 'valv-example-key-123', secret: '',
+      environment: 'test', scopes: '', expires: '', url: '', notes: '', ...stamp },
+    { id: 'b0000000-0000-4000-8000-000000000004', type: 'note', title: 'Server notes',
+      body: 'first line\nsecond line åäö', ...stamp },
+    { id: 'b0000000-0000-4000-8000-000000000005', type: 'recovery', title: 'GitHub 2FA',
+      service: 'GitHub', codes: [{ code: 'aaaa-1111', used: true }, { code: 'bbbb-2222', used: false }],
+      notes: '', deleted: true, deletedAt: '2026-06-09T00:00:00Z', ...stamp },
+  ];
+  const blob = await encryptVault('password', JSON.stringify({ entries, meta: {} }), FAST_ITER);
+  const opened = JSON.parse(await decryptVault('password', blob)).entries.map(normalizeEntry);
+  assert.deepEqual(opened.map((e) => e.type), ['login', 'seed', 'apikey', 'note', 'recovery']);
+  assert.deepEqual(opened[3], { ...entries[3], deleted: false });
+  assert.deepEqual(opened[4], entries[4]); // explicit deleted flag untouched
+
+  const blob2 = await encryptVault('password', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
+  const reopened = JSON.parse(await decryptVault('password', blob2)).entries.map(normalizeEntry);
+  assert.deepEqual(reopened, opened);
+});
+
+test('normalizeEntry on v1.1-era data: deleted defaults to false', () => {
+  const v11Entry = { id: 'x', type: 'apikey', title: 'A', key: 'k' };
+  assert.equal(normalizeEntry(v11Entry).deleted, false);
+  assert.equal(normalizeEntry({ id: 'y', title: 'old login' }).type, 'login');
+  assert.equal(normalizeEntry({ id: 'y', title: 'old login' }).deleted, false);
+  // an explicit flag — true or false — is never overwritten
+  assert.equal(normalizeEntry({ id: 'z', type: 'note', title: 'N', deleted: true }).deleted, true);
+});
+
+test('trash: entries deleted more than 30 days ago are purged (mocked clock)', () => {
+  const now = new Date('2026-06-10T12:00:00Z').getTime();
+  const day = 86400000;
+  const entries = [
+    { id: '1', title: 'kept, not deleted', deleted: false },
+    { id: '2', title: 'kept, deleted 29 days ago', deleted: true,
+      deletedAt: new Date(now - 29 * day).toISOString() },
+    { id: '3', title: 'purged, deleted 31 days ago', deleted: true,
+      deletedAt: new Date(now - 31 * day).toISOString() },
+    { id: '4', title: 'kept, deleted with unknown age', deleted: true },
+    { id: '5', title: 'kept, exactly at the limit', deleted: true,
+      deletedAt: new Date(now - TRASH_RETENTION_DAYS * day).toISOString() },
+  ];
+  const purged = purgeExpiredTrash(entries, now);
+  assert.deepEqual(purged.map((e) => e.id), ['1', '2', '4', '5']);
+});
+
+test('splitRecoveryCodes: lines and whitespace', () => {
+  assert.deepEqual(
+    splitRecoveryCodes('  aaaa-1111\nbbbb-2222 cccc-3333\n\n dddd-4444\t'),
+    ['aaaa-1111', 'bbbb-2222', 'cccc-3333', 'dddd-4444']);
+  assert.deepEqual(splitRecoveryCodes(''), []);
 });
 
 test('parseSeedPhrase: split on whitespace, trim + lowercase', () => {
