@@ -1,0 +1,22 @@
+/* Valv — mörkt, minimalt, responsivt */
+:root {
+  --bg: #14161a;
+  --bg-panel: #1d2026;
+  --fg: #e8eaed;
+  --fg-dim: #9aa0a6;
+  --border: #30343d;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+#lock-screen { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 1rem; }
+.lock-box { width: 100%; max-width: 24rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; }
+.lock-box h1 { text-align: center; margin: 0; }
+.tagline { text-align: center; color: var(--fg-dim); margin-top: .25rem; }
