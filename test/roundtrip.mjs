@@ -12,6 +12,7 @@ import {
   isValidSeedWordCount, parseSeedPhrase, unknownSeedWords, normalizeEntry,
 } from '../src/seed.js';
 import { STRINGS } from '../src/i18n.js';
+import { base32Decode, parseTotpInput, generateTotp, totpRemainingSeconds } from '../src/totp.js';
 
 // A low iteration count keeps the tests that are not about key derivation
 // itself fast. One test runs the full default count (600 000).
@@ -193,6 +194,64 @@ test('BIP39 validation: word list and unknown words', () => {
   assert.deepEqual(SEED_WORD_COUNTS, [12, 15, 18, 21, 24]);
   for (const n of [12, 15, 18, 21, 24]) assert.ok(isValidSeedWordCount(n));
   for (const n of [0, 11, 13, 23, 25]) assert.ok(!isValidSeedWordCount(n));
+});
+
+test('base32 decoder: RFC 4648, whitespace, case, padding, invalid input', () => {
+  // "12345678901234567890" (the RFC 6238 test secret) in base32
+  const expected = new Uint8Array([...'12345678901234567890'].map((c) => c.charCodeAt(0)));
+  assert.deepEqual(base32Decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'), expected);
+  // spaced lowercase groups, as authenticator apps display them
+  assert.deepEqual(base32Decode('gezd gnbv gy3t qojq gezd gnbv gy3t qojq'), expected);
+  // padding is ignored
+  assert.deepEqual(base32Decode('MZXW6==='), new Uint8Array([0x66, 0x6f, 0x6f]));
+  assert.throws(() => base32Decode('ABC1DEF')); // '1' is not in the alphabet
+});
+
+test('TOTP matches the RFC 6238 Appendix B vectors (SHA-1)', async () => {
+  // Appendix B uses the 20-byte ASCII secret "12345678901234567890" and
+  // 8-digit codes; the 6-digit code is the same value mod 10^6.
+  const config = { secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', period: 30, digits: 8, algorithm: 'SHA1' };
+  const vectors = [
+    [59, '94287082'],
+    [1111111109, '07081804'],
+    [1111111111, '14050471'],
+    [1234567890, '89005924'],
+    [2000000000, '69279037'],
+    [20000000000, '65353130'],
+  ];
+  for (const [seconds, expected] of vectors) {
+    assert.equal(await generateTotp(config, seconds * 1000), expected, `T=${seconds}`);
+    // adjusted to 6 digits: the same dynamic-truncation value mod 10^6
+    assert.equal(
+      await generateTotp({ ...config, digits: 6 }, seconds * 1000),
+      String(Number(expected) % 10 ** 6).padStart(6, '0'),
+      `T=${seconds} (6 digits)`);
+  }
+});
+
+test('totpRemainingSeconds counts down to the period boundary', () => {
+  assert.equal(totpRemainingSeconds(30, 0), 30);
+  assert.equal(totpRemainingSeconds(30, 29_000), 1);
+  assert.equal(totpRemainingSeconds(30, 30_000), 30);
+  assert.equal(totpRemainingSeconds(30, 59_999), 1);
+});
+
+test('parseTotpInput: plain base32 and otpauth:// URIs', () => {
+  // plain base32 with spaces and lowercase, defaults applied
+  assert.deepEqual(parseTotpInput(' gezd gnbv gy3t qojq gezd gnbv gy3t qojq '),
+    { secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', period: 30, digits: 6, algorithm: 'SHA1' });
+  // full otpauth URI with overrides
+  assert.deepEqual(parseTotpInput(
+    'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&issuer=Example&period=60&digits=8&algorithm=SHA256'),
+    { secret: 'JBSWY3DPEHPK3PXP', period: 60, digits: 8, algorithm: 'SHA256' });
+  // URI defaults
+  assert.deepEqual(parseTotpInput('otpauth://totp/X?secret=JBSWY3DPEHPK3PXP'),
+    { secret: 'JBSWY3DPEHPK3PXP', period: 30, digits: 6, algorithm: 'SHA1' });
+  // invalid inputs
+  assert.equal(parseTotpInput(''), null);
+  assert.equal(parseTotpInput('not base32 at all!1'), null);
+  assert.equal(parseTotpInput('otpauth://totp/X'), null); // no secret
+  assert.equal(parseTotpInput('otpauth://totp/X?secret=JBSWY3DPEHPK3PXP&algorithm=MD5'), null);
 });
 
 test('i18n: en and sv define exactly the same keys with the same types', () => {

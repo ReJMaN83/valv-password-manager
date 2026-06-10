@@ -26,6 +26,7 @@ const stripExport = (code) => code.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '');
 const cryptoJs = stripExport(await src('crypto.js'));
 const i18nJs = stripExport(await src('i18n.js'));
 const seedJs = stripExport(await src('seed.js'));
+const totpJs = stripExport(await src('totp.js'));
 const appJs = await src('app.js');
 
 const replaceOnce = (haystack, needle, replacement) => {
@@ -39,6 +40,7 @@ html = replaceOnce(html, '<link rel="stylesheet" href="style.css">', `<style>\n$
 html = replaceOnce(html, '<script src="crypto.js"></script>', `<script>\n${cryptoJs}</script>`);
 html = replaceOnce(html, '<script src="i18n.js"></script>', `<script>\n${i18nJs}</script>`);
 html = replaceOnce(html, '<script src="seed.js"></script>', `<script>\n${seedJs}</script>`);
+html = replaceOnce(html, '<script src="totp.js"></script>', `<script>\n${totpJs}</script>`);
 html = replaceOnce(html, '<script src="app.js"></script>', `<script>\n${appJs}</script>`);
 html = replaceOnce(html, '<!--BUILD:CSP-->', CSP);
 
