@@ -408,8 +408,10 @@ check('i18n: the entry survived language switch + round-trip',
 await page.close();
 
 // ---- API keys: masked fields, expiry indicator, search exclusions, i18n
-const KEY = 'sk_test_abc123xyz789';
-const SECRET = 'whsec_supersecret456';
+// Fixture values deliberately do not mimic real provider key formats
+// (sk_test_/whsec_/AKIA…) — GitHub push protection rejects those patterns.
+const KEY = 'valv-test-key-abc123xyz789';
+const SECRET = 'valv-test-secret-456';
 const inTenDays = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
 const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
@@ -450,9 +452,9 @@ check('apikey: distinct indicator when expired',
 // search: service matches, key/secret never do
 await page.fill('#search', 'payments');
 check('apikey: search matches the service', (await page.locator('#entry-list li').count()) === 1);
-await page.fill('#search', 'sk_test');
+await page.fill('#search', 'abc123xyz');
 check('apikey: search NEVER matches the key', (await page.locator('#entry-list li').count()) === 0);
-await page.fill('#search', 'whsec');
+await page.fill('#search', 'test-secret');
 check('apikey: search NEVER matches the secret', (await page.locator('#entry-list li').count()) === 0);
 await page.fill('#search', '');
 
