@@ -1,51 +1,89 @@
-// app.js — Valv applikationslogik
+// app.js — Valv application logic
 'use strict';
 
 // ============================================================
-// Orörd källkod — grunden för spara-mekanismen
+// Pristine source — the foundation of the save mechanism
 //
-// Vi läser document.documentElement.outerHTML EN gång, direkt när skriptet
-// körs. Skripten ligger sist i <body>, så hela dokumentet är parsat men
-// appen har ännu inte rört DOM:en. Detta är den robustaste metoden:
+// We read document.documentElement.outerHTML ONCE, as soon as this script
+// executes. The scripts sit at the end of <body>, so the whole document is
+// parsed but the app has not yet touched the DOM. This is the most robust
+// approach:
 //
-//  - Att läsa outerHTML först vid spara vore osäkert: då innehåller DOM:en
-//    renderade poster i KLARTEXT (listan, öppna dialoger) som skulle
-//    serialiseras med ut i den sparade filen.
-//  - Att bära källkoden i en separat template skulle dubblera hela appen
-//    i filen och riskera att template och faktisk kod glider isär.
+//  - Reading outerHTML at save time would be dangerous: by then the DOM
+//    contains rendered entries in PLAINTEXT (the list, open dialogs) that
+//    would be serialized into the saved file.
+//  - Carrying the source in a separate template would duplicate the whole
+//    app inside the file and risk template and code drifting apart.
 //
-// Ögonblicksbilden vid start innehåller bara appkod + det krypterade
-// vault-blocket. Webbläsarens serialisering är stabil: en sparad fil som
-// öppnas och sparas igen ger samma resultat (round-trip-invarianten).
-// outerHTML innehåller inte doctype, därför läggs den till manuellt.
+// The snapshot taken at load contains only app code + the encrypted vault
+// block. Browser serialization is stable: a saved file that is opened and
+// saved again produces the same result (the round-trip invariant).
+// outerHTML does not include the doctype, so it is added manually.
 const PRISTINE_SOURCE = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 
-// Matchar vault-blocket i källkoden. Skrivet med <\/script> så att appkoden
-// själv inte innehåller en avslutande script-tagg i klartext (det skulle
-// avsluta inline-skriptet i den byggda filen).
+// Matches the vault block in the source. Written with <\/script> so that
+// the app code itself never contains a literal closing script tag (which
+// would terminate the inline script in the built file).
 const VAULT_BLOCK_RE =
   /(<script id="vault-data" type="application\/json">)([\s\S]*?)(<\/script>)/;
 
 const $ = (id) => document.getElementById(id);
 
-// Allt dekrypterat lever ENDAST här, i minnet. Aldrig localStorage,
-// sessionStorage, IndexedDB, cookies eller disk.
+// ============================================================
+// Language
+//
+// Sensitivity trade-off, documented on purpose: the language choice is
+// stored UNENCRYPTED in the vault block (the `lang` field), unlike every
+// other setting. It has to be readable before unlock so that the lock
+// screen itself appears in the user's language, and which of two languages
+// someone prefers reveals nothing about the vault's contents. Everything
+// the user actually types (entries, auto-lock minutes, etc.) stays inside
+// the encrypted payload.
+let lang = 'en';
+
+function t(key, ...args) {
+  const table = STRINGS[lang] || STRINGS.en;
+  const value = key in table ? table[key] : STRINGS.en[key];
+  return typeof value === 'function' ? value(...args) : value;
+}
+
+// Static markup carries English text as fallback; elements tagged with
+// data-i18n / data-i18n-placeholder / data-i18n-title are retranslated here.
+function applyLanguage() {
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-i18n]')) {
+    el.textContent = t(el.dataset.i18n);
+  }
+  for (const el of document.querySelectorAll('[data-i18n-placeholder]')) {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  }
+  for (const el of document.querySelectorAll('[data-i18n-title]')) {
+    el.title = t(el.dataset.i18nTitle);
+  }
+  if (state.entries) renderList(); // list rows contain translated buttons
+}
+
+// ============================================================
+// State
+//
+// Everything decrypted lives ONLY here, in memory. Never localStorage,
+// sessionStorage, IndexedDB, cookies or disk.
 const state = {
-  key: null,        // CryptoKey (AES-GCM), ej extraherbar
+  key: null,        // CryptoKey (AES-GCM), non-extractable
   salt: null,       // Uint8Array
   iterations: KDF_ITERATIONS_DEFAULT,
-  entries: null,    // null = låst
+  entries: null,    // null = locked
   settings: { autoLockMinutes: 5 },
-  verifier: null,   // krypterad kontrollsträng, används av "byt lösenord"
-  fileHandle: null, // File System Access-handtag, återanvänds mellan sparningar
+  verifier: null,   // encrypted check string, used by "change password"
+  fileHandle: null, // File System Access handle, reused between saves
   editingId: null,
   clipboardTimer: null,
   autoLockTimer: null,
 };
 
-// "dirty" = filen på disk är inte aktuell. Flaggan överlever lås/upplås
-// (den avslöjar inget känsligt) så att indikatorn stämmer även efter
-// auto-lås innan användaren hunnit spara.
+// "dirty" = the file on disk is stale. The flag survives lock/unlock (it
+// reveals nothing sensitive) so the indicator stays correct even after an
+// auto-lock before the user managed to save.
 let dirty = false;
 
 function setDirty(value) {
@@ -55,7 +93,7 @@ function setDirty(value) {
 const markDirty = () => setDirty(true);
 
 // ============================================================
-// Småhjälpare: toast och bekräftelsedialog
+// Small helpers: toast and confirmation dialog
 let toastTimer = null;
 function toast(message) {
   const box = $('toast');
@@ -69,10 +107,10 @@ let confirmAnswer = false;
 $('confirm-ok').addEventListener('click', () => { confirmAnswer = true; $('confirm-dialog').close(); });
 $('confirm-cancel').addEventListener('click', () => $('confirm-dialog').close());
 
-function confirmDialog(message, okLabel = 'OK') {
+function confirmDialog(message, okLabel) {
   return new Promise((resolve) => {
     $('confirm-message').textContent = message;
-    $('confirm-ok').textContent = okLabel;
+    $('confirm-ok').textContent = okLabel || t('ok');
     confirmAnswer = false;
     const dlg = $('confirm-dialog');
     dlg.addEventListener('close', () => resolve(confirmAnswer), { once: true });
@@ -81,7 +119,7 @@ function confirmDialog(message, okLabel = 'OK') {
 }
 
 // ============================================================
-// Vault-blocket i DOM:en
+// The vault block in the DOM
 function readVaultBlock() {
   const text = $('vault-data').textContent.trim();
   if (!text) return null;
@@ -93,7 +131,7 @@ async function currentVaultJson() {
     entries: state.entries,
     meta: { modified: new Date().toISOString(), settings: state.settings },
   });
-  // encryptWithKey genererar en NY slumpad nonce vid varje anrop
+  // encryptWithKey generates a NEW random nonce on every call
   const { nonce, ciphertext } = await encryptWithKey(state.key, payload);
   return JSON.stringify({
     version: 1,
@@ -102,12 +140,14 @@ async function currentVaultJson() {
     salt: toBase64(state.salt),
     nonce,
     ciphertext,
+    // Unencrypted on purpose — see the language comment at the top.
+    lang,
   });
 }
 
-// Speglar aktuell (krypterad) data till DOM-blocket. Därmed använder
-// lås/upplås i samma session alltid senaste datan — även ändringar som
-// ännu inte skrivits till disk överlever ett (auto-)lås, krypterat.
+// Mirrors the current (encrypted) data into the DOM block. Lock/unlock
+// within the same session therefore always uses the latest data — even
+// changes not yet written to disk survive an (auto-)lock, encrypted.
 async function updateLiveVaultBlock() {
   const json = await currentVaultJson();
   $('vault-data').textContent = json;
@@ -115,9 +155,11 @@ async function updateLiveVaultBlock() {
 }
 
 // ============================================================
-// Låsskärm: upplåsning och first-run
+// Lock screen: unlock and first run
 function init() {
   const blob = readVaultBlock();
+  if (blob && STRINGS[blob.lang]) lang = blob.lang;
+  applyLanguage();
   $('unlock-form').classList.toggle('hidden', !blob);
   $('create-form').classList.toggle('hidden', !!blob);
   (blob ? $('unlock-password') : $('create-password')).focus();
@@ -130,7 +172,7 @@ $('unlock-form').addEventListener('submit', async (event) => {
   if (!blob || !password) return;
   const btn = $('unlock-btn');
   btn.disabled = true;
-  btn.textContent = 'Låser upp…';
+  btn.textContent = t('lockUnlocking');
   $('unlock-error').classList.add('hidden');
   try {
     const salt = fromBase64(blob.salt);
@@ -139,12 +181,12 @@ $('unlock-form').addEventListener('submit', async (event) => {
     $('unlock-password').value = '';
     await openVault(key, salt, blob.iterations, payload);
   } catch {
-    // GCM-taggen validerade inte => fel lösenord. Ingen korrupt data visas.
+    // The GCM tag did not validate => wrong password. No corrupt data shown.
     $('unlock-error').classList.remove('hidden');
     $('unlock-password').select();
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Lås upp';
+    btn.textContent = t('lockUnlock');
   }
 });
 
@@ -160,7 +202,7 @@ function passwordStrength(password) {
   if (password.length >= 14 && classes >= 3) score++;
   if (password.length >= 20) score = 4;
   score = Math.min(score, 4);
-  return { score, label: ['', 'Mycket svagt', 'Svagt', 'Bra', 'Starkt'][score] };
+  return { score, label: t('strengthLabels')[score] };
 }
 
 $('create-password').addEventListener('input', () => {
@@ -168,7 +210,7 @@ $('create-password').addEventListener('input', () => {
   const bar = $('strength-bar');
   bar.style.width = (score * 25) + '%';
   bar.dataset.score = score;
-  $('strength-label').textContent = label || ' ';
+  $('strength-label').textContent = label || ' ';
 });
 
 $('create-form').addEventListener('submit', async (event) => {
@@ -177,26 +219,26 @@ $('create-form').addEventListener('submit', async (event) => {
   const repeated = $('create-password2').value;
   const errorBox = $('create-error');
   const fail = (message) => { errorBox.textContent = message; errorBox.classList.remove('hidden'); };
-  if (password.length < 8) return fail('Lösenordet måste vara minst 8 tecken.');
-  if (password !== repeated) return fail('Lösenorden matchar inte.');
+  if (password.length < 8) return fail(t('createTooShort'));
+  if (password !== repeated) return fail(t('createMismatch'));
   errorBox.classList.add('hidden');
   const btn = $('create-btn');
   btn.disabled = true;
-  btn.textContent = 'Skapar valv…';
+  btn.textContent = t('createBusy');
   try {
     const salt = randomBytes(SALT_BYTES);
     const key = await deriveKey(password, salt, KDF_ITERATIONS_DEFAULT);
     $('create-password').value = '';
     $('create-password2').value = '';
     $('strength-bar').style.width = '0';
-    $('strength-label').textContent = ' ';
+    $('strength-label').textContent = ' ';
     await openVault(key, salt, KDF_ITERATIONS_DEFAULT, { entries: [], meta: {} });
-    await updateLiveVaultBlock(); // gör att lås/upplås fungerar redan före första sparningen
+    await updateLiveVaultBlock(); // makes lock/unlock work even before the first save
     setDirty(true);
-    toast('Valvet är skapat — klicka Spara för att skriva det till fil.');
+    toast(t('toastCreated'));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Skapa valv';
+    btn.textContent = t('createButton');
   }
 });
 
@@ -204,11 +246,11 @@ async function openVault(key, salt, iterations, payload) {
   state.key = key;
   state.salt = salt;
   state.iterations = iterations;
-  // normalizeEntry ger poster från äldre valv (utan type-fält) type "login"
+  // normalizeEntry gives entries from older vaults (no type field) type "login"
   state.entries = (Array.isArray(payload.entries) ? payload.entries : []).map(normalizeEntry);
   state.settings = Object.assign({ autoLockMinutes: 5 }, payload.meta && payload.meta.settings);
-  // Krypterad kontrollsträng: låter "byt lösenord" verifiera det nuvarande
-  // lösenordet utan att lösenordet eller någon hash av det sparas.
+  // Encrypted check string: lets "change password" verify the current
+  // password without the password, or any hash of it, being stored anywhere.
   state.verifier = await encryptWithKey(key, 'valv-verifier');
   $('lock-screen').classList.add('hidden');
   $('main-screen').classList.remove('hidden');
@@ -218,14 +260,16 @@ async function openVault(key, salt, iterations, payload) {
 }
 
 // ============================================================
-// Lås och auto-lås
+// Lock and auto-lock
 async function lock() {
   if (!state.key) return;
-  // Bevara senaste ändringarna (krypterat) i DOM-blocket innan minnet töms.
+  // Preserve the latest changes (encrypted) in the DOM block before
+  // clearing memory.
   if (dirty) await updateLiveVaultBlock();
-  // Nollställning, best effort: referenserna släpps så att GC kan ta minnet.
-  // JS-strängar är immutabla och kan inte skrivas över på plats — se README
-  // för begränsningarna. CryptoKey är ej extraherbar och försvinner med GC.
+  // Best-effort zeroing: references are dropped so GC can reclaim them.
+  // JavaScript strings are immutable and cannot be overwritten in place —
+  // see README for the limitations. The CryptoKey is non-extractable and
+  // disappears with GC.
   state.key = null;
   state.salt = null;
   state.entries = null;
@@ -255,14 +299,14 @@ function resetAutoLock() {
   const minutes = Math.min(30, Math.max(1, Number(state.settings.autoLockMinutes) || 5));
   state.autoLockTimer = setTimeout(async () => {
     await lock();
-    toast('Valvet låstes automatiskt efter inaktivitet.');
+    toast(t('toastAutoLocked'));
   }, minutes * 60000);
 }
 
 let lastActivity = 0;
 function onActivity() {
   const now = Date.now();
-  if (now - lastActivity < 5000) return; // strypning: starta inte om timern för varje pixel
+  if (now - lastActivity < 5000) return; // throttle: don't restart the timer per pixel
   lastActivity = now;
   resetAutoLock();
 }
@@ -271,38 +315,38 @@ for (const eventName of ['pointermove', 'pointerdown', 'keydown', 'scroll', 'tou
 }
 
 // ============================================================
-// Urklipp med automatisk rensning
+// Clipboard with automatic clearing
 async function copySecret(text, what, message) {
-  if (!text) { toast(`Inget att kopiera — fältet är tomt.`); return; }
+  if (!text) { toast(t('nothingToCopy')); return; }
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    toast('Kunde inte komma åt urklipp.');
+    toast(t('clipboardUnavailable'));
     return;
   }
   clearTimeout(state.clipboardTimer);
   state.clipboardTimer = setTimeout(clearClipboard, 30000);
-  toast(message || `${what} kopierat — urklipp rensas om 30 s.`);
+  toast(message || t('copiedMessage', what));
 }
 
 async function clearClipboard() {
   state.clipboardTimer = null;
   try {
     await navigator.clipboard.writeText('');
-    toast('Urklipp rensat.');
+    toast(t('clipboardCleared'));
   } catch {
-    // dokumentet kan sakna fokus — rensningen är best effort
+    // the document may lack focus — clearing is best effort
   }
 }
 
 // ============================================================
-// Lista och sök
+// List and search
 function renderList() {
   const query = $('search').value.trim().toLowerCase();
   const list = $('entry-list');
   list.textContent = '';
   if (!state.entries) return;
-  // Sökindexet för seed-poster är titel + wallet — ALDRIG själva orden.
+  // The search index for seed entries is title + wallet — NEVER the words.
   const matchesQuery = (e) => {
     if (!query) return true;
     const haystacks = e.type === 'seed'
@@ -312,7 +356,7 @@ function renderList() {
   };
   const matches = state.entries
     .filter(matchesQuery)
-    .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'sv', { sensitivity: 'base' }));
+    .sort((a, b) => (a.title || '').localeCompare(b.title || '', lang, { sensitivity: 'base' }));
 
   for (const entry of matches) {
     const li = document.createElement('li');
@@ -323,7 +367,7 @@ function renderList() {
     info.className = 'entry-info';
     const title = document.createElement('span');
     title.className = 'entry-title';
-    title.textContent = entry.title; // alltid textContent — aldrig innerHTML med användardata
+    title.textContent = entry.title; // always textContent — never innerHTML with user data
     const sub = document.createElement('span');
     sub.className = 'entry-sub';
     sub.textContent = isSeed ? (entry.wallet || '') : (entry.username || entry.url || '');
@@ -332,21 +376,21 @@ function renderList() {
     const actions = document.createElement('div');
     actions.className = 'entry-actions';
     if (isSeed) {
-      // Medvetet inga kopieringsknappar i listan för seed-poster: hela
-      // frasen ska inte hamna i urklipp på ett felklick. Badge i stället.
+      // Deliberately no copy buttons in the list for seed entries: a whole
+      // phrase should not end up in the clipboard on a misclick. Badge instead.
       const badge = document.createElement('span');
       badge.className = 'badge';
       badge.textContent = '🌱 SEED';
       actions.append(badge);
     } else {
       actions.append(
-        makeButton('Anv.', 'Kopiera användarnamn', (ev) => {
+        makeButton(t('listCopyUser'), t('copyUserTitle'), (ev) => {
           ev.stopPropagation();
-          copySecret(entry.username, 'Användarnamn');
+          copySecret(entry.username, t('usernameWord'));
         }),
-        makeButton('Lösen', 'Kopiera lösenord', (ev) => {
+        makeButton(t('listCopyPassword'), t('copyPasswordTitle'), (ev) => {
           ev.stopPropagation();
-          copySecret(entry.password, 'Lösenord');
+          copySecret(entry.password, t('passwordWord'));
         }),
       );
     }
@@ -362,9 +406,7 @@ function renderList() {
 
   const hint = $('empty-hint');
   if (matches.length === 0) {
-    hint.textContent = state.entries.length === 0
-      ? 'Inga poster ännu. Klicka på ”+ Inloggning” eller ”+ Seed-fras”.'
-      : 'Inga träffar på sökningen.';
+    hint.textContent = state.entries.length === 0 ? t('emptyNone') : t('emptyNoMatches');
     hint.classList.remove('hidden');
   } else {
     hint.classList.add('hidden');
@@ -383,18 +425,18 @@ function makeButton(label, title, onClick) {
 $('search').addEventListener('input', renderList);
 
 // ============================================================
-// Post-dialogen: skapa, redigera, ta bort
+// Entry dialog: create, edit, delete (logins)
 const ENTRY_FIELDS = ['entry-title', 'entry-username', 'entry-password', 'entry-url', 'entry-notes'];
 
 function openEntryDialog(id) {
   state.editingId = id || null;
   const entry = id ? state.entries.find((e) => e.id === id) : null;
-  $('entry-dialog-title').textContent = entry ? 'Redigera post' : 'Ny post';
+  $('entry-dialog-title').textContent = entry ? t('entryTitleEdit') : t('entryTitleNew');
   $('entry-title').value = entry ? entry.title : '';
   $('entry-username').value = entry ? entry.username : '';
   $('entry-password').value = entry ? entry.password : '';
   $('entry-password').type = 'password';
-  $('entry-toggle-password').textContent = 'Visa';
+  $('entry-toggle-password').textContent = t('show');
   $('entry-url').value = entry ? entry.url : '';
   $('entry-notes').value = entry ? entry.notes : '';
   $('entry-delete').classList.toggle('hidden', !entry);
@@ -406,8 +448,8 @@ $('new-login-btn').addEventListener('click', () => openEntryDialog(null));
 $('new-seed-btn').addEventListener('click', () => openSeedDialog(null));
 $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 
-// Rensa fälten även när dialogen stängs med Escape, så att lösenord
-// inte ligger kvar i DOM:en.
+// Clear the fields even when the dialog is closed with Escape, so that
+// passwords do not linger in the DOM.
 $('entry-dialog').addEventListener('close', () => {
   for (const fieldId of ENTRY_FIELDS) $(fieldId).value = '';
   state.editingId = null;
@@ -428,7 +470,7 @@ $('entry-form').addEventListener('submit', (event) => {
     const entry = state.entries.find((e) => e.id === state.editingId);
     if (entry) Object.assign(entry, values, { modified: now });
   } else {
-    state.entries.push({ id: crypto.randomUUID(), ...values, created: now, modified: now });
+    state.entries.push({ id: crypto.randomUUID(), type: 'login', ...values, created: now, modified: now });
   }
   markDirty();
   $('entry-dialog').close();
@@ -438,7 +480,7 @@ $('entry-form').addEventListener('submit', (event) => {
 $('entry-delete').addEventListener('click', async () => {
   const entry = state.entries && state.entries.find((e) => e.id === state.editingId);
   if (!entry) return;
-  if (!(await confirmDialog(`Ta bort posten ”${entry.title}”?`, 'Ta bort'))) return;
+  if (!(await confirmDialog(t('deleteEntryConfirm', entry.title), t('deleteBtn')))) return;
   state.entries = state.entries.filter((e) => e.id !== entry.id);
   markDirty();
   $('entry-dialog').close();
@@ -449,24 +491,24 @@ $('entry-toggle-password').addEventListener('click', () => {
   const field = $('entry-password');
   const show = field.type === 'password';
   field.type = show ? 'text' : 'password';
-  $('entry-toggle-password').textContent = show ? 'Dölj' : 'Visa';
+  $('entry-toggle-password').textContent = show ? t('hide') : t('show');
 });
 
 $('entry-copy-username').addEventListener('click', () => {
-  copySecret($('entry-username').value, 'Användarnamn');
+  copySecret($('entry-username').value, t('usernameWord'));
 });
 $('entry-copy-password').addEventListener('click', () => {
-  copySecret($('entry-password').value, 'Lösenord');
+  copySecret($('entry-password').value, t('passwordWord'));
 });
 
 // ============================================================
-// Seed-poster
+// Seed entries
 //
-// Säkerhetsmodell för orden: när en sparad seed-post öppnas är ordfälten
-// TOMMA (value = '') med ”•••••” som placeholder och readonly — de
-// riktiga orden finns inte i DOM:en förrän användaren klickar Visa.
-// Vid Dölj töms fälten igen. Sparas posten utan att orden visats behålls
-// de redan sparade orden oförändrade.
+// Security model for the words: when a saved seed entry is opened, the word
+// fields are EMPTY (value = '') with "•••••" as placeholder and readonly —
+// the real words are not in the DOM until the user clicks Show. Hiding
+// empties the fields again. If the entry is saved without the words ever
+// having been shown, the already-stored words are kept unchanged.
 let seedEditingId = null;
 let seedWordsShown = false;
 
@@ -480,13 +522,13 @@ function buildSeedGrid(count, masked) {
     cell.className = 'word-cell';
     const num = document.createElement('span');
     num.className = 'word-num';
-    num.textContent = String(i + 1); // numreringen är hela poängen — ordningen måste synas
+    num.textContent = String(i + 1); // the numbering is the whole point — order must be visible
     const input = document.createElement('input');
     input.type = 'text';
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.setAttribute('autocapitalize', 'none');
-    input.setAttribute('aria-label', `Ord ${i + 1}`);
+    input.setAttribute('aria-label', t('wordAria', i + 1));
     if (masked) {
       input.placeholder = '•••••';
       input.readOnly = true;
@@ -506,8 +548,7 @@ function validateSeedWords() {
   }
   const warning = $('seed-warning');
   if (unknown > 0) {
-    warning.textContent = `${unknown} ord finns inte i BIP39-ordlistan (engelska). `
-      + 'Kontrollera stavningen — du kan ändå spara (andra ordlistor/språk finns).';
+    warning.textContent = t('seedUnknownWords', unknown);
     warning.classList.remove('hidden');
   } else {
     warning.classList.add('hidden');
@@ -517,20 +558,20 @@ function validateSeedWords() {
 function openSeedDialog(id) {
   seedEditingId = id || null;
   const entry = id ? state.entries.find((e) => e.id === id) : null;
-  $('seed-dialog-title').textContent = entry ? 'Seed-fras' : 'Ny seed-fras';
+  $('seed-dialog-title').textContent = entry ? t('seedTitleView') : t('seedTitleNew');
   $('seed-title').value = entry ? entry.title : '';
   $('seed-wallet').value = entry ? entry.wallet || '' : '';
   $('seed-passphrase').value = entry ? entry.passphrase || '' : '';
   $('seed-passphrase').type = 'password';
-  $('seed-toggle-passphrase').textContent = 'Visa';
+  $('seed-toggle-passphrase').textContent = t('show');
   $('seed-derivation').value = entry ? entry.derivation || '' : '';
   $('seed-notes').value = entry ? entry.notes || '' : '';
   $('seed-delete').classList.toggle('hidden', !entry);
   $('seed-warning').classList.add('hidden');
-  // ny post: skriv orden direkt; befintlig: dolda tills Visa klickas
+  // new entry: type the words right away; existing: hidden until Show
   seedWordsShown = !entry;
   $('seed-toggle').classList.toggle('hidden', !entry);
-  $('seed-toggle').textContent = 'Visa';
+  $('seed-toggle').textContent = t('show');
   $('seed-paste-hint').classList.toggle('hidden', !!entry);
   const count = entry ? entry.words.length : 12;
   $('seed-count').value = String(count);
@@ -547,16 +588,16 @@ $('seed-toggle').addEventListener('click', () => {
     buildSeedGrid(entry.words.length, false);
     seedWordInputs().forEach((input, i) => { input.value = entry.words[i] || ''; });
     seedWordsShown = true;
-    $('seed-toggle').textContent = 'Dölj';
+    $('seed-toggle').textContent = t('hide');
     $('seed-count').value = String(entry.words.length);
     $('seed-count').disabled = false;
     $('seed-paste-hint').classList.remove('hidden');
     validateSeedWords();
   } else {
-    // Dölj: tillbaka till placeholder — ordändringar i fälten förkastas
+    // Hide: back to placeholders — any word edits in the fields are discarded
     buildSeedGrid(entry.words.length, true);
     seedWordsShown = false;
-    $('seed-toggle').textContent = 'Visa';
+    $('seed-toggle').textContent = t('show');
     $('seed-count').value = String(entry.words.length);
     $('seed-count').disabled = true;
     $('seed-paste-hint').classList.add('hidden');
@@ -575,17 +616,17 @@ $('seed-grid').addEventListener('input', (event) => {
   if (event.target.matches('input')) validateSeedWords();
 });
 
-// Klistra in hela frasen i ett ordfält => splitta och fyll alla fält.
+// Paste a whole phrase into any word field => split and fill all fields.
 $('seed-grid').addEventListener('paste', (event) => {
   if (!event.target.matches('input') || event.target.readOnly) return;
   const words = parseSeedPhrase((event.clipboardData || window.clipboardData).getData('text'));
-  if (words.length < 2) return; // ett ensamt ord klistras in som vanligt
+  if (words.length < 2) return; // a single word pastes as usual
   event.preventDefault();
   if (isValidSeedWordCount(words.length)) {
     $('seed-count').value = String(words.length);
     buildSeedGrid(words.length, false);
   } else {
-    toast(`${words.length} ord är inget giltigt antal (12/15/18/21/24) — fyller i så långt det går.`);
+    toast(t('seedInvalidCount', words.length));
   }
   seedWordInputs().forEach((input, i) => { input.value = words[i] || ''; });
   validateSeedWords();
@@ -601,12 +642,12 @@ $('seed-form').addEventListener('submit', (event) => {
     words = seedWordInputs().map((input) => input.value.trim().toLowerCase());
     if (words.some((word) => word === '')) {
       const warning = $('seed-warning');
-      warning.textContent = 'Alla ordfält måste fyllas i.';
+      warning.textContent = t('seedFillAll');
       warning.classList.remove('hidden');
       return;
     }
   } else {
-    words = existing.words; // orden visades aldrig — behåll de sparade orden
+    words = existing.words; // the words were never shown — keep the stored ones
   }
   const now = new Date().toISOString();
   const values = {
@@ -630,7 +671,7 @@ $('seed-form').addEventListener('submit', (event) => {
 
 $('seed-cancel').addEventListener('click', () => $('seed-dialog').close());
 
-// Töm allt vid stängning (även Escape) så att inga ord ligger kvar i DOM:en.
+// Clear everything on close (including Escape) so no words remain in the DOM.
 $('seed-dialog').addEventListener('close', () => {
   for (const id of ['seed-title', 'seed-wallet', 'seed-passphrase', 'seed-derivation', 'seed-notes']) {
     $(id).value = '';
@@ -643,10 +684,7 @@ $('seed-dialog').addEventListener('close', () => {
 $('seed-delete').addEventListener('click', async () => {
   const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
   if (!entry) return;
-  const ok = await confirmDialog(
-    `Ta bort seed-frasen ”${entry.title}”? Utan frasen kan plånboken inte återskapas.`,
-    'Ta bort');
-  if (!ok) return;
+  if (!(await confirmDialog(t('seedDeleteConfirm', entry.title), t('deleteBtn')))) return;
   state.entries = state.entries.filter((e) => e.id !== entry.id);
   markDirty();
   $('seed-dialog').close();
@@ -657,7 +695,7 @@ $('seed-toggle-passphrase').addEventListener('click', () => {
   const field = $('seed-passphrase');
   const show = field.type === 'password';
   field.type = show ? 'text' : 'password';
-  $('seed-toggle-passphrase').textContent = show ? 'Dölj' : 'Visa';
+  $('seed-toggle-passphrase').textContent = show ? t('hide') : t('show');
 });
 
 $('seed-copy').addEventListener('click', () => {
@@ -668,19 +706,18 @@ $('seed-copy').addEventListener('click', () => {
     const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
     words = entry ? entry.words : [];
   }
-  if (!words.length) { toast('Inga ord att kopiera.'); return; }
-  copySecret(words.join(' '), 'Seed-fras',
-    'Seed-fras i urklipp — rensas om 30 s. Klistra aldrig in på webbsidor.');
+  if (!words.length) { toast(t('seedNoWords')); return; }
+  copySecret(words.join(' '), t('seedPhraseWord'), t('seedClipboardWarning'));
 });
 
 // ============================================================
-// Spara: bygg en komplett ny HTML-fil och skriv den till disk
+// Save: build a complete new HTML file and write it to disk
 function buildSavedHtml(vaultJson) {
   if (!VAULT_BLOCK_RE.test(PRISTINE_SOURCE)) {
-    throw new Error('vault-data-blocket saknas i källkoden');
+    throw new Error('vault-data block missing from source');
   }
-  // Replacer-funktion så att $-tecken i JSON:en inte tolkas som
-  // specialreferenser av String.prototype.replace.
+  // Replacer function so that $ characters in the JSON are not interpreted
+  // as special replacement patterns by String.prototype.replace.
   return PRISTINE_SOURCE.replace(VAULT_BLOCK_RE, (_m, open, _old, close) => open + vaultJson + close);
 }
 
@@ -689,37 +726,37 @@ async function saveVault() {
   const vaultJson = await updateLiveVaultBlock();
   const html = buildSavedHtml(vaultJson);
 
-  // Primärt: File System Access API — kan skriva över filen på plats.
-  // Handtaget återanvänds så att efterföljande sparningar inte frågar igen.
+  // Primary: File System Access API — can overwrite the file in place.
+  // The handle is reused so subsequent saves don't ask again.
   if (window.showSaveFilePicker) {
     try {
       if (!state.fileHandle) {
         state.fileHandle = await window.showSaveFilePicker({
           suggestedName: 'valv.html',
-          types: [{ description: 'HTML-fil', accept: { 'text/html': ['.html'] } }],
+          types: [{ description: 'HTML file', accept: { 'text/html': ['.html'] } }],
         });
       }
       const writable = await state.fileHandle.createWritable();
       await writable.write(html);
       await writable.close();
       setDirty(false);
-      toast('Sparat.');
+      toast(t('toastSaved'));
       return;
     } catch (err) {
       if (err && err.name === 'AbortError') {
-        toast('Sparandet avbröts.');
-        return; // användaren ångrade sig — fortfarande osparat
+        toast(t('toastSaveAborted'));
+        return; // the user changed their mind — still unsaved
       }
-      // Handtaget kan ha blivit ogiltigt (flyttad/raderad fil) eller API:t
-      // blockerat — släpp handtaget och fall tillbaka på nedladdning.
+      // The handle may have become invalid (file moved/deleted) or the API
+      // blocked — drop the handle and fall back to download.
       state.fileHandle = null;
     }
   }
 
-  // Fallback: Blob + nedladdningslänk.
+  // Fallback: Blob + download link.
   downloadFile('valv.html', html, 'text/html');
   setDirty(false);
-  toast('Nedladdad som valv.html — ersätt din gamla fil med den nya.');
+  toast(t('toastDownloaded'));
 }
 
 function downloadFile(filename, content, type) {
@@ -735,7 +772,7 @@ function downloadFile(filename, content, type) {
 
 $('save-btn').addEventListener('click', saveVault);
 
-// Varna om fönstret stängs med osparade ändringar.
+// Warn if the window is closed with unsaved changes.
 window.addEventListener('beforeunload', (event) => {
   if (dirty) {
     event.preventDefault();
@@ -744,7 +781,7 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 // ============================================================
-// Lösenordsgenerator
+// Password generator
 const GEN_SETS = {
   upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
   lower: 'abcdefghijklmnopqrstuvwxyz',
@@ -752,8 +789,8 @@ const GEN_SETS = {
   symbols: '!#$%&()*+,-./:;<=>?@[]^_{|}~',
 };
 
-// Slump enbart via crypto.getRandomValues, med rejection sampling så att
-// modulo-operationen inte ger vissa tecken högre sannolikhet.
+// Randomness only via crypto.getRandomValues, with rejection sampling so the
+// modulo operation does not bias some characters over others.
 function generatePassword(length, pool) {
   const limit = Math.floor(256 / pool.length) * pool.length;
   let out = '';
@@ -780,7 +817,7 @@ function regenerate() {
   $('gen-output').value = pool
     ? generatePassword(Number($('gen-length').value), pool)
     : '';
-  if (!pool) toast('Välj minst en teckentyp.');
+  if (!pool) toast(t('genPickOne'));
 }
 
 function openGenerator(forEntry) {
@@ -796,7 +833,7 @@ for (const id of ['gen-upper', 'gen-lower', 'gen-digits', 'gen-symbols']) {
   $(id).addEventListener('change', regenerate);
 }
 $('gen-regenerate').addEventListener('click', regenerate);
-$('gen-copy').addEventListener('click', () => copySecret($('gen-output').value, 'Lösenord'));
+$('gen-copy').addEventListener('click', () => copySecret($('gen-output').value, t('passwordWord')));
 $('gen-use').addEventListener('click', () => {
   $('entry-password').value = $('gen-output').value;
   $('generator-dialog').close();
@@ -805,8 +842,9 @@ $('gen-close').addEventListener('click', () => $('generator-dialog').close());
 $('generator-dialog').addEventListener('close', () => { $('gen-output').value = ''; });
 
 // ============================================================
-// Inställningar: auto-lås, byt master-lösenord, export
+// Settings: language, auto-lock, change master password, export
 $('settings-btn').addEventListener('click', () => {
+  $('language-select').value = lang;
   $('autolock-minutes').value = state.settings.autoLockMinutes;
   $('cp-message').classList.add('hidden');
   $('settings-dialog').showModal();
@@ -816,6 +854,15 @@ $('settings-dialog').addEventListener('close', () => {
   for (const id of ['cp-current', 'cp-new', 'cp-new2']) $(id).value = '';
 });
 
+$('language-select').addEventListener('change', () => {
+  const chosen = $('language-select').value;
+  if (!STRINGS[chosen] || chosen === lang) return;
+  lang = chosen;
+  applyLanguage();
+  // The choice is persisted in the vault block on save — mark as unsaved.
+  markDirty();
+});
+
 $('autolock-minutes').addEventListener('change', () => {
   const minutes = Math.min(30, Math.max(1, Number($('autolock-minutes').value) || 5));
   $('autolock-minutes').value = minutes;
@@ -823,7 +870,7 @@ $('autolock-minutes').addEventListener('change', () => {
     state.settings.autoLockMinutes = minutes;
     markDirty();
     resetAutoLock();
-    toast(`Auto-lås satt till ${minutes} min. Glöm inte att spara.`);
+    toast(t('setAutoLockToast', minutes));
   }
 });
 
@@ -836,21 +883,21 @@ $('cp-submit').addEventListener('click', async () => {
   };
   const current = $('cp-current').value;
   const next = $('cp-new').value;
-  if (next.length < 8) return show('Det nya lösenordet måste vara minst 8 tecken.', true);
-  if (next !== $('cp-new2').value) return show('De nya lösenorden matchar inte.', true);
+  if (next.length < 8) return show(t('cpTooShort'), true);
+  if (next !== $('cp-new2').value) return show(t('cpMismatch'), true);
 
   const btn = $('cp-submit');
   btn.disabled = true;
-  btn.textContent = 'Byter…';
+  btn.textContent = t('setChanging');
   try {
-    // Verifiera nuvarande lösenord mot den krypterade kontrollsträngen.
+    // Verify the current password against the encrypted check string.
     try {
       const candidate = await deriveKey(current, state.salt, state.iterations);
       await decryptWithKey(candidate, state.verifier.nonce, state.verifier.ciphertext);
     } catch {
-      return show('Fel nuvarande lösenord.', true);
+      return show(t('cpWrongCurrent'), true);
     }
-    // Omkryptera med NYTT salt och dagens standard-iterationsantal.
+    // Re-encrypt with a NEW salt and today's default iteration count.
     const salt = randomBytes(SALT_BYTES);
     const key = await deriveKey(next, salt, KDF_ITERATIONS_DEFAULT);
     state.salt = salt;
@@ -860,23 +907,16 @@ $('cp-submit').addEventListener('click', async () => {
     await updateLiveVaultBlock();
     markDirty();
     for (const id of ['cp-current', 'cp-new', 'cp-new2']) $(id).value = '';
-    show('Lösenordet är bytt. Glöm inte att spara valvet till fil.', false);
+    show(t('cpChanged'), false);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Byt lösenord';
+    btn.textContent = t('setChangeBtn');
   }
 });
 
 $('export-btn').addEventListener('click', async () => {
   const hasSeeds = state.entries.some((e) => e.type === 'seed');
-  const message = hasSeeds
-    ? 'VARNING: valvet innehåller SEED-FRASER. Exporten är HELT OKRYPTERAD — '
-      + 'den som kommer över filen kan tömma dina plånböcker, och en seed-fras '
-      + 'kan inte bytas som ett lösenord. Spara aldrig filen i molnet, och '
-      + 'radera den säkert direkt efter användning. Fortsätt ändå?'
-    : 'Exporten är HELT OKRYPTERAD — alla lösenord hamnar i klartext i filen. '
-      + 'Spara den bara på en säker plats och radera den så fort du är klar. Fortsätt?';
-  const ok = await confirmDialog(message, 'Exportera okrypterat');
+  const ok = await confirmDialog(hasSeeds ? t('expWarningSeeds') : t('expWarning'), t('expOk'));
   if (!ok) return;
   const json = JSON.stringify(
     { entries: state.entries, meta: { exported: new Date().toISOString() } },
@@ -885,16 +925,16 @@ $('export-btn').addEventListener('click', async () => {
 });
 
 // ============================================================
-// Uppgradering och import
+// Upgrade and import
 //
-// Två vägar in i ett nytt (tomt) appskal:
-//  A) Importera JSON — läser den okrypterade exporten.
-//  B) Uppgradera från fil — läser #vault-data-blocket ur en äldre
-//     valv.html och dekrypterar med DEN filens master-lösenord.
-//     Datan förblir krypterad ända in i minnet, ingen okrypterad fil
-//     behövs på disk. Därför rekommenderas B i UI:t.
-// Den gamla filen läses enbart som TEXT (regex + JSON.parse) — dess
-// HTML/skript renderas eller körs aldrig.
+// Two ways into a new (empty) app shell:
+//  A) Import JSON — reads the unencrypted export.
+//  B) Upgrade from file — reads the #vault-data block from an older
+//     valv.html and decrypts it with THAT file's master password.
+//     The data stays encrypted all the way into memory; no unencrypted
+//     file ever needs to touch disk. This is why B is recommended in the UI.
+// The old file is read as TEXT only (regex + JSON.parse) — its HTML and
+// scripts are never rendered or executed.
 
 function pickFile(accept) {
   return new Promise((resolve) => {
@@ -910,20 +950,20 @@ function pickFile(accept) {
   });
 }
 
-// Validerar att en vald fil är en valvfil och plockar ut det krypterade blocket.
+// Validates that a chosen file is a vault file and extracts the encrypted block.
 function parseVaultFile(html) {
   const match = html.match(VAULT_BLOCK_RE);
-  if (!match) return { error: 'Ingen valvdata hittades i filen — är det verkligen en valv.html?' };
+  if (!match) return { error: t('upErrNotVault') };
   const text = match[2].trim();
-  if (!text) return { error: 'Filen är ett tomt valvskal utan data.' };
+  if (!text) return { error: t('upErrEmpty') };
   let blob;
-  try { blob = JSON.parse(text); } catch { return { error: 'Valvdatan i filen är skadad.' }; }
+  try { blob = JSON.parse(text); } catch { return { error: t('upErrCorrupt') }; }
   if (blob.version !== 1) {
-    return { error: `Filen använder ett okänt valvformat (version ${blob.version ?? '?'}).` };
+    return { error: t('upErrVersion', blob.version ?? '?') };
   }
   if (blob.kdf !== 'PBKDF2-SHA256' || !Number.isInteger(blob.iterations)
       || !blob.salt || !blob.nonce || !blob.ciphertext) {
-    return { error: 'Valvdatan i filen är ofullständig.' };
+    return { error: t('upErrIncomplete') };
   }
   return { blob };
 }
@@ -943,8 +983,8 @@ function chooseMergeMode(message) {
   });
 }
 
-// Gemensam intagsväg för A och B: normalisera, fråga slå ihop/ersätt, ta in.
-async function takeInEntries(rawEntries, sourceLabel) {
+// Shared intake path for A and B: normalize, ask merge/replace, bring in.
+async function takeInEntries(rawEntries) {
   const now = new Date().toISOString();
   const incoming = [];
   let skipped = 0;
@@ -957,26 +997,24 @@ async function takeInEntries(rawEntries, sourceLabel) {
     incoming.push(entry);
   }
   if (!incoming.length) {
-    toast(`Inga giltiga poster hittades i ${sourceLabel}.`);
+    toast(t('mergeNoEntries'));
     return;
   }
-  let message = `${incoming.length} poster hittades i ${sourceLabel}. `
-    + `Slå ihop med dina ${state.entries.length} befintliga poster, eller ersätt allt?`;
-  if (skipped > 0) message += ` (${skipped} poster hoppades över — ogiltigt format.)`;
+  let message = t('mergeMessage', incoming.length, state.entries.length);
+  if (skipped > 0) message += t('mergeSkippedSuffix', skipped);
   const mode = await chooseMergeMode(message);
   if (!mode) return;
   if (mode === 'replace') {
     if (state.entries.length > 0) {
-      const ok = await confirmDialog(
-        `Ersätta ALLT? Dina ${state.entries.length} befintliga poster tas bort.`, 'Ersätt');
+      const ok = await confirmDialog(t('mergeReplaceConfirm', state.entries.length), t('mergeReplaceOk'));
       if (!ok) return;
     }
     state.entries = incoming;
   } else {
     const existingIds = new Set(state.entries.map((e) => e.id));
     for (const entry of incoming) {
-      // id-krock (t.ex. samma export intagen två gånger): behåll båda
-      // posterna med nytt id — aldrig tyst dataförlust.
+      // id collision (e.g. the same export brought in twice): keep both
+      // entries under a new id — never silent data loss.
       if (existingIds.has(entry.id)) entry.id = crypto.randomUUID();
       state.entries.push(entry);
     }
@@ -984,23 +1022,23 @@ async function takeInEntries(rawEntries, sourceLabel) {
   markDirty();
   renderList();
   $('settings-dialog').close();
-  toast(`${incoming.length} poster intagna${mode === 'replace' ? ' (ersatte allt)' : ''}. Glöm inte att spara.`);
+  toast(t('mergeTakenIn', incoming.length, mode === 'replace'));
 }
 
-// A) Import av okrypterad JSON-export
+// A) Import an unencrypted JSON export
 $('import-btn').addEventListener('click', async () => {
   const file = await pickFile('.json,application/json');
   if (!file) return;
   let data;
-  try { data = JSON.parse(await file.text()); } catch { toast('Filen är inte giltig JSON.'); return; }
+  try { data = JSON.parse(await file.text()); } catch { toast(t('impInvalidJson')); return; }
   if (!data || typeof data !== 'object' || !Array.isArray(data.entries)) {
-    toast('Filen ser inte ut som en Valv-export (fältet entries saknas).');
+    toast(t('impNotExport'));
     return;
   }
-  await takeInEntries(data.entries, 'JSON-filen');
+  await takeInEntries(data.entries);
 });
 
-// B) Uppgradera från en äldre valv.html
+// B) Upgrade from an older valv.html
 let upgradeBlob = null;
 
 $('upgrade-btn').addEventListener('click', async () => {
@@ -1009,7 +1047,7 @@ $('upgrade-btn').addEventListener('click', async () => {
   const parsed = parseVaultFile(await file.text());
   if (parsed.error) { toast(parsed.error); return; }
   upgradeBlob = parsed.blob;
-  $('upgrade-filename').textContent = `Fil: ${file.name}`;
+  $('upgrade-filename').textContent = t('upFileLabel', file.name);
   $('upgrade-password').value = '';
   $('upgrade-error').classList.add('hidden');
   $('upgrade-dialog').showModal();
@@ -1023,19 +1061,19 @@ $('upgrade-form').addEventListener('submit', async (event) => {
   if (!password) return;
   const btn = $('upgrade-unlock');
   btn.disabled = true;
-  btn.textContent = 'Dekrypterar…';
+  btn.textContent = t('upDecrypting');
   try {
     const key = await deriveKey(password, fromBase64(upgradeBlob.salt), upgradeBlob.iterations);
     const payload = JSON.parse(await decryptWithKey(key, upgradeBlob.nonce, upgradeBlob.ciphertext));
     $('upgrade-dialog').close();
-    await takeInEntries(Array.isArray(payload.entries) ? payload.entries : [], 'den gamla valvfilen');
+    await takeInEntries(Array.isArray(payload.entries) ? payload.entries : []);
   } catch {
-    $('upgrade-error').textContent = 'Fel lösenord för den valda filen.';
+    $('upgrade-error').textContent = t('upWrongPassword');
     $('upgrade-error').classList.remove('hidden');
     $('upgrade-password').select();
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Lås upp filen';
+    btn.textContent = t('upUnlockBtn');
   }
 });
 

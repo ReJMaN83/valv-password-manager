@@ -11,6 +11,7 @@ import {
   BIP39_WORDS, BIP39_SET, SEED_WORD_COUNTS,
   isValidSeedWordCount, parseSeedPhrase, unknownSeedWords, normalizeEntry,
 } from '../src/seed.js';
+import { STRINGS } from '../src/i18n.js';
 
 // Lågt iterationsantal i de tester som inte handlar om deriveringen i sig,
 // så att sviten är snabb. Ett test kör fullt antal (600 000).
@@ -138,6 +139,21 @@ test('BIP39-validering: ordlista och okända ord', () => {
   assert.deepEqual(SEED_WORD_COUNTS, [12, 15, 18, 21, 24]);
   for (const n of [12, 15, 18, 21, 24]) assert.ok(isValidSeedWordCount(n));
   for (const n of [0, 11, 13, 23, 25]) assert.ok(!isValidSeedWordCount(n));
+});
+
+test('i18n: en och sv definierar exakt samma nycklar med samma typer', () => {
+  const langs = Object.keys(STRINGS);
+  assert.deepEqual(langs.sort(), ['en', 'sv']);
+  const enKeys = Object.keys(STRINGS.en).sort();
+  const svKeys = Object.keys(STRINGS.sv).sort();
+  assert.deepEqual(svKeys, enKeys);
+  for (const key of enKeys) {
+    assert.equal(typeof STRINGS.sv[key], typeof STRINGS.en[key], `typ för ${key}`);
+    if (typeof STRINGS.en[key] === 'string') {
+      assert.ok(STRINGS.en[key].length > 0, `en.${key} är tom`);
+      assert.ok(STRINGS.sv[key].length > 0, `sv.${key} är tom`);
+    }
+  }
 });
 
 test('round-trip i dist/valv.html (spara-simulering)', async () => {

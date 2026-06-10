@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,26 +15,26 @@
 <main id="lock-screen" class="screen">
   <div class="lock-box">
     <h1>Valv</h1>
-    <p class="tagline">Krypterad lösenordshanterare i en fil</p>
+    <p class="tagline" data-i18n="tagline">Encrypted password manager in a single file</p>
 
     <form id="unlock-form" class="hidden">
-      <label for="unlock-password">Master-lösenord</label>
+      <label for="unlock-password" data-i18n="lockPasswordLabel">Master password</label>
       <input type="password" id="unlock-password" autocomplete="off">
-      <p id="unlock-error" class="error hidden">Fel lösenord. Försök igen.</p>
-      <button type="submit" class="primary" id="unlock-btn">Lås upp</button>
+      <p id="unlock-error" class="error hidden" data-i18n="lockWrongPassword">Wrong password. Try again.</p>
+      <button type="submit" class="primary" id="unlock-btn" data-i18n="lockUnlock">Unlock</button>
     </form>
 
     <form id="create-form" class="hidden">
-      <p>Välkommen! Det här valvet är tomt. Välj ett master-lösenord för att skapa det.</p>
-      <label for="create-password">Master-lösenord (minst 8 tecken)</label>
+      <p data-i18n="createIntro">Welcome! This vault is empty. Choose a master password to create it.</p>
+      <label for="create-password" data-i18n="createPasswordLabel">Master password (at least 8 characters)</label>
       <input type="password" id="create-password" autocomplete="off">
       <div class="strength"><div id="strength-bar"></div></div>
       <p id="strength-label" class="small">&nbsp;</p>
-      <label for="create-password2">Upprepa lösenordet</label>
+      <label for="create-password2" data-i18n="createRepeatLabel">Repeat the password</label>
       <input type="password" id="create-password2" autocomplete="off">
       <p id="create-error" class="error hidden"></p>
-      <p class="warn small">Glömt master-lösenord = datan är borta för alltid. Det finns ingen återställning.</p>
-      <button type="submit" class="primary" id="create-btn">Skapa valv</button>
+      <p class="warn small" data-i18n="createForgetWarning">A forgotten master password means the data is gone forever. There is no recovery.</p>
+      <button type="submit" class="primary" id="create-btn" data-i18n="createButton">Create vault</button>
     </form>
   </div>
 </main>
@@ -43,19 +43,19 @@
   <header>
     <div class="header-row">
       <h1>Valv</h1>
-      <span id="dirty-indicator" class="dirty hidden" title="Ändringarna är inte sparade till fil">&#9679; osparat</span>
+      <span id="dirty-indicator" class="dirty hidden" data-i18n="dirtyIndicator" data-i18n-title="dirtyTitle" title="Changes have not been saved to file">&#9679; unsaved</span>
       <div class="toolbar">
-        <button id="save-btn" class="primary">Spara</button>
-        <button id="lock-btn">Lås</button>
+        <button id="save-btn" class="primary" data-i18n="save">Save</button>
+        <button id="lock-btn" data-i18n="lockBtn">Lock</button>
       </div>
     </div>
     <div class="header-row">
-      <input type="search" id="search" placeholder="Sök titel, användarnamn eller URL…">
+      <input type="search" id="search" data-i18n-placeholder="searchPlaceholder" placeholder="Search title, username or URL…">
       <div class="toolbar">
-        <button id="new-login-btn" class="primary">+ Inloggning</button>
-        <button id="new-seed-btn" class="primary">+ Seed-fras</button>
-        <button id="generator-btn">Generator</button>
-        <button id="settings-btn">Inställningar</button>
+        <button id="new-login-btn" class="primary" data-i18n="newLogin">+ Login</button>
+        <button id="new-seed-btn" class="primary" data-i18n="newSeed">+ Seed phrase</button>
+        <button id="generator-btn" data-i18n="generator">Generator</button>
+        <button id="settings-btn" data-i18n="settings">Settings</button>
       </div>
     </div>
   </header>
@@ -65,43 +65,43 @@
 
 <dialog id="entry-dialog">
   <form id="entry-form">
-    <h2 id="entry-dialog-title">Ny post</h2>
-    <label for="entry-title">Titel</label>
+    <h2 id="entry-dialog-title">New entry</h2>
+    <label for="entry-title" data-i18n="labelTitle">Title</label>
     <input id="entry-title" type="text" required>
-    <label for="entry-username">Användarnamn</label>
+    <label for="entry-username" data-i18n="labelUsername">Username</label>
     <div class="input-row">
       <input id="entry-username" type="text" autocomplete="off">
-      <button type="button" id="entry-copy-username" title="Kopiera användarnamn">Kopiera</button>
+      <button type="button" id="entry-copy-username" data-i18n="copy" data-i18n-title="copyUserTitle" title="Copy username">Copy</button>
     </div>
-    <label for="entry-password">Lösenord</label>
+    <label for="entry-password" data-i18n="labelPassword">Password</label>
     <div class="input-row">
       <input id="entry-password" type="password" autocomplete="off">
-      <button type="button" id="entry-toggle-password" title="Visa eller dölj lösenordet">Visa</button>
-      <button type="button" id="entry-generate" title="Öppna lösenordsgeneratorn">Generera</button>
-      <button type="button" id="entry-copy-password" title="Kopiera lösenord">Kopiera</button>
+      <button type="button" id="entry-toggle-password" data-i18n-title="showHidePasswordTitle" title="Show or hide the password">Show</button>
+      <button type="button" id="entry-generate" data-i18n="generate" data-i18n-title="openGeneratorTitle" title="Open the password generator">Generate</button>
+      <button type="button" id="entry-copy-password" data-i18n="copy" data-i18n-title="copyPasswordTitle" title="Copy password">Copy</button>
     </div>
-    <label for="entry-url">URL</label>
+    <label for="entry-url" data-i18n="labelUrl">URL</label>
     <input id="entry-url" type="text" autocomplete="off">
-    <label for="entry-notes">Anteckningar</label>
+    <label for="entry-notes" data-i18n="labelNotes">Notes</label>
     <textarea id="entry-notes" rows="4"></textarea>
     <div class="dialog-buttons">
-      <button type="button" id="entry-delete" class="danger hidden">Ta bort</button>
+      <button type="button" id="entry-delete" class="danger hidden" data-i18n="deleteBtn">Delete</button>
       <span class="spacer"></span>
-      <button type="button" id="entry-cancel">Avbryt</button>
-      <button type="submit" class="primary">Spara post</button>
+      <button type="button" id="entry-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
     </div>
   </form>
 </dialog>
 
 <dialog id="seed-dialog">
   <form id="seed-form">
-    <h2 id="seed-dialog-title">Ny seed-fras</h2>
-    <label for="seed-title">Titel</label>
+    <h2 id="seed-dialog-title">New seed phrase</h2>
+    <label for="seed-title" data-i18n="labelTitle">Title</label>
     <input id="seed-title" type="text" required>
-    <label for="seed-wallet">Wallet</label>
-    <input id="seed-wallet" type="text" autocomplete="off" placeholder="t.ex. MetaMask, Ledger">
+    <label for="seed-wallet" data-i18n="labelWallet">Wallet</label>
+    <input id="seed-wallet" type="text" autocomplete="off" data-i18n-placeholder="walletPlaceholder" placeholder="e.g. MetaMask, Ledger">
     <div class="seed-words-head">
-      <label for="seed-count">Antal ord</label>
+      <label for="seed-count" data-i18n="labelWordCount">Word count</label>
       <select id="seed-count">
         <option>12</option>
         <option>15</option>
@@ -110,112 +110,118 @@
         <option>24</option>
       </select>
       <span class="spacer"></span>
-      <button type="button" id="seed-toggle" class="hidden">Visa</button>
+      <button type="button" id="seed-toggle" class="hidden">Show</button>
     </div>
-    <p id="seed-paste-hint" class="small">Tips: klistra in hela frasen i första fältet så fylls alla ord i automatiskt.</p>
+    <p id="seed-paste-hint" class="small" data-i18n="seedPasteHint">Tip: paste the whole phrase into the first field and all words are filled in automatically.</p>
     <div id="seed-grid" class="word-grid"></div>
     <p id="seed-warning" class="warn small hidden"></p>
-    <label for="seed-passphrase">Passphrase (valfri, ”25:e ordet”)</label>
+    <label for="seed-passphrase" data-i18n="labelPassphrase">Passphrase (optional, the “25th word”)</label>
     <div class="input-row">
       <input id="seed-passphrase" type="password" autocomplete="off">
-      <button type="button" id="seed-toggle-passphrase" title="Visa eller dölj passphrasen">Visa</button>
+      <button type="button" id="seed-toggle-passphrase" data-i18n-title="showHidePassphraseTitle" title="Show or hide the passphrase">Show</button>
     </div>
-    <label for="seed-derivation">Derivation path (valfri)</label>
-    <input id="seed-derivation" type="text" autocomplete="off" placeholder="t.ex. m/44'/60'/0'/0/0">
-    <label for="seed-notes">Anteckningar</label>
+    <label for="seed-derivation" data-i18n="labelDerivation">Derivation path (optional)</label>
+    <input id="seed-derivation" type="text" autocomplete="off" data-i18n-placeholder="derivationPlaceholder" placeholder="e.g. m/44'/60'/0'/0/0">
+    <label for="seed-notes" data-i18n="labelNotes">Notes</label>
     <textarea id="seed-notes" rows="3"></textarea>
     <div class="dialog-buttons">
-      <button type="button" id="seed-delete" class="danger hidden">Ta bort</button>
-      <button type="button" id="seed-copy">Kopiera fras</button>
+      <button type="button" id="seed-delete" class="danger hidden" data-i18n="deleteBtn">Delete</button>
+      <button type="button" id="seed-copy" data-i18n="copyPhrase">Copy phrase</button>
       <span class="spacer"></span>
-      <button type="button" id="seed-cancel">Avbryt</button>
-      <button type="submit" class="primary">Spara post</button>
+      <button type="button" id="seed-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
     </div>
   </form>
 </dialog>
 
 <dialog id="generator-dialog">
-  <h2>Lösenordsgenerator</h2>
-  <label for="gen-length">Längd: <span id="gen-length-value">20</span></label>
+  <h2 data-i18n="genTitle">Password generator</h2>
+  <label for="gen-length"><span data-i18n="genLength">Length:</span> <span id="gen-length-value">20</span></label>
   <input type="range" id="gen-length" min="8" max="64" value="20">
   <div class="gen-options">
-    <label><input type="checkbox" id="gen-upper" checked> Versaler (A–Z)</label>
-    <label><input type="checkbox" id="gen-lower" checked> Gemener (a–z)</label>
-    <label><input type="checkbox" id="gen-digits" checked> Siffror (0–9)</label>
-    <label><input type="checkbox" id="gen-symbols" checked> Symboler (!#%…)</label>
+    <label><input type="checkbox" id="gen-upper" checked> <span data-i18n="genUpper">Uppercase (A–Z)</span></label>
+    <label><input type="checkbox" id="gen-lower" checked> <span data-i18n="genLower">Lowercase (a–z)</span></label>
+    <label><input type="checkbox" id="gen-digits" checked> <span data-i18n="genDigits">Digits (0–9)</span></label>
+    <label><input type="checkbox" id="gen-symbols" checked> <span data-i18n="genSymbols">Symbols (!#%…)</span></label>
   </div>
   <div class="input-row">
     <input type="text" id="gen-output" readonly>
-    <button type="button" id="gen-regenerate" title="Generera ett nytt lösenord">Nytt</button>
+    <button type="button" id="gen-regenerate" data-i18n="genNew" data-i18n-title="genNewTitle" title="Generate a new password">New</button>
   </div>
   <div class="dialog-buttons">
-    <button type="button" id="gen-copy">Kopiera</button>
+    <button type="button" id="gen-copy" data-i18n="copy">Copy</button>
     <span class="spacer"></span>
-    <button type="button" id="gen-use" class="primary hidden">Använd i posten</button>
-    <button type="button" id="gen-close">Stäng</button>
+    <button type="button" id="gen-use" class="primary hidden" data-i18n="genUse">Use in entry</button>
+    <button type="button" id="gen-close" data-i18n="close">Close</button>
   </div>
 </dialog>
 
 <dialog id="settings-dialog">
-  <h2>Inställningar</h2>
+  <h2 data-i18n="setTitle">Settings</h2>
   <section>
-    <label for="autolock-minutes">Auto-lås efter inaktivitet (minuter, 1–30)</label>
+    <label for="language-select" data-i18n="setLanguageLabel">Language</label>
+    <!-- Language names are proper nouns and read the same in both locales,
+         so they are intentionally not translated. -->
+    <select id="language-select">
+      <option value="en">English</option>
+      <option value="sv">Svenska</option>
+    </select>
+  </section>
+  <section>
+    <label for="autolock-minutes" data-i18n="setAutoLockLabel">Auto-lock after inactivity (minutes, 1–30)</label>
     <input type="number" id="autolock-minutes" min="1" max="30">
   </section>
   <section>
-    <h3>Byt master-lösenord</h3>
-    <label for="cp-current">Nuvarande lösenord</label>
+    <h3 data-i18n="setChangeTitle">Change master password</h3>
+    <label for="cp-current" data-i18n="setCurrentLabel">Current password</label>
     <input type="password" id="cp-current" autocomplete="off">
-    <label for="cp-new">Nytt lösenord (minst 8 tecken)</label>
+    <label for="cp-new" data-i18n="setNewLabel">New password (at least 8 characters)</label>
     <input type="password" id="cp-new" autocomplete="off">
-    <label for="cp-new2">Upprepa nytt lösenord</label>
+    <label for="cp-new2" data-i18n="setNewRepeatLabel">Repeat the new password</label>
     <input type="password" id="cp-new2" autocomplete="off">
     <p id="cp-message" class="small hidden"></p>
-    <button type="button" id="cp-submit">Byt lösenord</button>
+    <button type="button" id="cp-submit" data-i18n="setChangeBtn">Change password</button>
   </section>
   <section>
-    <h3>Uppgradera / importera</h3>
-    <p class="small">Flytta in poster från ett tidigare valv, t.ex. när du laddat ner en
-      ny version av appen. <em>Uppgradera från fil</em> läser din gamla <em>valv.html</em>
-      direkt — datan förblir krypterad hela vägen (rekommenderas).
-      <em>Importera JSON</em> läser en okrypterad export.</p>
-    <button type="button" id="upgrade-btn">Uppgradera från fil… (rekommenderas)</button>
-    <button type="button" id="import-btn">Importera JSON…</button>
+    <h3 data-i18n="setUpgradeTitle">Upgrade / import</h3>
+    <p class="small" data-i18n="setUpgradeDesc">Bring entries in from an earlier vault, e.g. after downloading a new version of the app. “Upgrade from file” reads your old valv.html directly — the data stays encrypted all the way (recommended). “Import JSON” reads an unencrypted export.</p>
+    <button type="button" id="upgrade-btn" data-i18n="setUpgradeBtn">Upgrade from file… (recommended)</button>
+    <button type="button" id="import-btn" data-i18n="setImportBtn">Import JSON…</button>
   </section>
   <section>
-    <h3>Export</h3>
-    <p class="small">Laddar ner alla poster som <em>okrypterad</em> JSON, t.ex. för flytt till en annan hanterare.</p>
-    <button type="button" id="export-btn" class="danger">Exportera okrypterat…</button>
+    <h3 data-i18n="setExportTitle">Export</h3>
+    <p class="small" data-i18n="setExportDesc">Downloads all entries as unencrypted JSON, e.g. for moving to another manager.</p>
+    <button type="button" id="export-btn" class="danger" data-i18n="setExportBtn">Export unencrypted…</button>
   </section>
   <div class="dialog-buttons">
     <span class="spacer"></span>
-    <button type="button" id="settings-close" class="primary">Stäng</button>
+    <button type="button" id="settings-close" class="primary" data-i18n="close">Close</button>
   </div>
 </dialog>
 
 <dialog id="upgrade-dialog">
   <form id="upgrade-form">
-    <h2>Uppgradera från fil</h2>
+    <h2 data-i18n="upTitle">Upgrade from file</h2>
     <p id="upgrade-filename" class="small"></p>
-    <label for="upgrade-password">Master-lösenord för den valda filen</label>
+    <label for="upgrade-password" data-i18n="upPasswordLabel">Master password for the selected file</label>
     <input type="password" id="upgrade-password" autocomplete="off">
     <p id="upgrade-error" class="error hidden"></p>
     <div class="dialog-buttons">
       <span class="spacer"></span>
-      <button type="button" id="upgrade-cancel">Avbryt</button>
-      <button type="submit" class="primary" id="upgrade-unlock">Lås upp filen</button>
+      <button type="button" id="upgrade-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" id="upgrade-unlock" data-i18n="upUnlockBtn">Unlock file</button>
     </div>
   </form>
 </dialog>
 
 <dialog id="merge-dialog">
-  <h2>Ta in poster</h2>
+  <h2 data-i18n="mergeTitle">Bring in entries</h2>
   <p id="merge-message"></p>
   <div class="dialog-buttons">
-    <button type="button" id="merge-replace" class="danger">Ersätt allt</button>
+    <button type="button" id="merge-replace" class="danger" data-i18n="mergeReplace">Replace everything</button>
     <span class="spacer"></span>
-    <button type="button" id="merge-cancel">Avbryt</button>
-    <button type="button" id="merge-merge" class="primary">Slå ihop</button>
+    <button type="button" id="merge-cancel" data-i18n="cancel">Cancel</button>
+    <button type="button" id="merge-merge" class="primary" data-i18n="mergeMerge">Merge</button>
   </div>
 </dialog>
 
@@ -223,7 +229,7 @@
   <p id="confirm-message"></p>
   <div class="dialog-buttons">
     <span class="spacer"></span>
-    <button type="button" id="confirm-cancel">Avbryt</button>
+    <button type="button" id="confirm-cancel" data-i18n="cancel">Cancel</button>
     <button type="button" id="confirm-ok" class="danger">OK</button>
   </div>
 </dialog>
@@ -231,6 +237,7 @@
 <div id="toast" class="hidden" role="status"></div>
 
 <script src="crypto.js"></script>
+<script src="i18n.js"></script>
 <script src="seed.js"></script>
 <script src="app.js"></script>
 </body>

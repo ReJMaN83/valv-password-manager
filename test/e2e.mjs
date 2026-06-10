@@ -208,7 +208,7 @@ await page.waitForSelector('#settings-dialog[open]');
 await page.click('#export-btn');
 await page.waitForSelector('#confirm-dialog[open]');
 check('gen3: exportvarningen nämner seed-fraser',
-  (await page.textContent('#confirm-message')).includes('SEED-FRASER'));
+  (await page.textContent('#confirm-message')).includes('SEED PHRASES'));
 const exportDl = page.waitForEvent('download');
 await page.click('#confirm-ok');
 const exportFile = path.join(tmp, 'valv-export.json');
@@ -268,7 +268,7 @@ const [chooserA] = await Promise.all([
 await chooserA.setFiles(exportFile);
 await page.waitForSelector('#merge-dialog[open]');
 check('import: merge-dialogen visar antal poster',
-  (await page.textContent('#merge-message')).includes('3 poster'));
+  (await page.textContent('#merge-message')).includes('3 entries'));
 await page.click('#merge-merge');
 // dialogens close-händelse kommer före renderList — vänta på listan, inte dialogen
 await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
@@ -310,7 +310,7 @@ await page.fill('#upgrade-password', PW);
 await page.click('#upgrade-unlock');
 await page.waitForSelector('#merge-dialog[open]');
 check('uppgradera: merge-dialogen visar antal poster',
-  (await page.textContent('#merge-message')).includes('3 poster'));
+  (await page.textContent('#merge-message')).includes('3 entries'));
 await page.click('#merge-merge');
 await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
 check('uppgradera: alla 3 poster togs in', true);
@@ -334,6 +334,55 @@ const upgradedWords = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
 check('uppgradera: seed-orden överlevde uppgradering + round-trip', upgradedWords.join(' ') === PHRASE);
 await page.click('#seed-cancel');
+await page.close();
+
+// ---- i18n: engelska som default, byt till svenska, språket överlever round-trip
+const i18nShell = path.join(tmp, 'shell-i18n.html');
+copyFileSync(DIST, i18nShell);
+page = await ctx.newPage();
+await page.goto('file://' + i18nShell);
+check('i18n: låsskärmen är på engelska som default',
+  (await page.textContent('#create-btn')) === 'Create vault'
+  && (await page.textContent('.tagline')) === 'Encrypted password manager in a single file');
+await page.fill('#create-password', PW2);
+await page.fill('#create-password2', PW2);
+await page.click('#create-btn');
+await page.waitForSelector('#main-screen', { state: 'visible' });
+check('i18n: huvudvyn är på engelska som default',
+  (await page.textContent('#settings-btn')) === 'Settings'
+  && (await page.textContent('#new-login-btn')) === '+ Login');
+
+await page.click('#new-login-btn');
+await page.fill('#entry-title', 'Språktest');
+await page.fill('#entry-password', 'pw-i18n');
+await page.click('#entry-form button[type=submit]');
+
+await page.click('#settings-btn');
+await page.selectOption('#language-select', 'sv');
+check('i18n: bytet till svenska slår igenom direkt',
+  (await page.textContent('#settings-btn')) === 'Inställningar'
+  && (await page.textContent('#save-btn')) === 'Spara'
+  && (await page.textContent('#dirty-indicator')) === '● osparat');
+await page.click('#settings-close');
+
+const genI18n = path.join(tmp, 'gen-i18n.html');
+await saveAndCapture(page, genI18n);
+await page.close();
+
+// Round-trip-invarianten: den sparade filen visar svenska redan FÖRE upplåsning
+page = await ctx.newPage();
+await page.goto('file://' + genI18n);
+check('i18n: sparad fil visar svenska på låsskärmen före upplåsning',
+  (await page.textContent('#unlock-btn')) === 'Lås upp'
+  && (await page.textContent('label[for=unlock-password]')) === 'Master-lösenord');
+check('i18n: html-lang sätts till sv', await page.evaluate(() => document.documentElement.lang) === 'sv');
+await page.fill('#unlock-password', PW2);
+await page.click('#unlock-btn');
+await page.waitForSelector('#main-screen', { state: 'visible' });
+check('i18n: huvudvyn på svenska efter upplåsning av sparad fil',
+  (await page.textContent('#new-login-btn')) === '+ Inloggning');
+check('i18n: posten överlevde språkbyte + round-trip',
+  (await page.textContent('.entry-title')) === 'Språktest');
 
 await page.close();
 await browser.close();
