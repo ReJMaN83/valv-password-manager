@@ -17,6 +17,7 @@
 import { homedir } from 'node:os';
 import { copyFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { generateTotp, totpRemainingSeconds } from '../src/totp.js';
 
 // In CI, REQUIRE_E2E=1 turns a missing browser into a failure instead of a skip.
 const skip = (reason) => {
@@ -67,6 +68,15 @@ const tmp = mkdtempSync('/tmp/valv-rt-');
 const browser = await chromium.launch({ executablePath: EXE });
 const ctx = await browser.newContext({ acceptDownloads: true });
 await ctx.addInitScript(() => { delete window.showSaveFilePicker; });
+// Record what the app writes to the clipboard so copy actions can be
+// asserted exactly (headless clipboard contents cannot be read back).
+await ctx.addInitScript(() => {
+  const real = navigator.clipboard.writeText.bind(navigator.clipboard);
+  navigator.clipboard.writeText = (text) => {
+    window.__lastClip = text;
+    return real(text).catch(() => {});
+  };
+});
 
 let failed = 0;
 const check = (name, cond) => {
@@ -508,6 +518,170 @@ check('apikey: the new-entry button switches to Swedish',
   (await page.textContent('#new-apikey-btn')) === '+ API-nyckel');
 check('apikey: the expiry indicator switches to Swedish',
   (await page.locator('#entry-list li', { hasText: 'OldAPI' }).locator('.expiry.expired').textContent()) === 'Utgången');
+await page.close();
+
+// ---- v1.2: secure notes, recovery codes, TOTP, trash
+page = await freshShell(path.join(tmp, 'shell-v12.html'));
+
+// Secure note with hostile content (XSS check)
+const NOTE_BODY = '<img src=x onerror=alert(2)>\nline two';
+await page.click('#new-note-btn');
+await page.fill('#note-title', 'Note <script>alert(1)</script>');
+await page.fill('#note-body', NOTE_BODY);
+await page.click('#note-form button[type=submit]');
+check('note: NOTE badge in the list', (await page.textContent('.badge.note')) === 'NOTE');
+check('note: hostile title renders inert via textContent',
+  (await page.textContent('.entry-title')) === 'Note <script>alert(1)</script>');
+check('note: no element was injected from the body',
+  await page.evaluate(() => !document.querySelector('img[src="x"]')));
+await page.fill('#search', 'line two');
+check('note: search never matches the body', (await page.locator('#entry-list li').count()) === 0);
+await page.fill('#search', '');
+
+await page.click('#entry-list li');
+await page.waitForSelector('#note-dialog[open]');
+check('note: body round-trips through the dialog', (await page.inputValue('#note-body')) === NOTE_BODY);
+await page.click('#note-copy');
+await page.waitForFunction((body) => window.__lastClip === body, NOTE_BODY);
+check('note: copy copies the whole body', true);
+await page.click('#note-cancel');
+
+// Recovery codes: paste -> split -> mask -> show -> mark used -> copy next
+await page.click('#new-recovery-btn');
+await page.fill('#recovery-title', 'GitHub');
+await page.fill('#recovery-service', 'GitHub');
+await page.fill('#recovery-paste', 'aaaa-1111\nbbbb-2222 cccc-3333');
+await page.click('#recovery-add');
+check('recovery: pasted codes split into 3 rows', (await page.locator('#recovery-list li').count()) === 3);
+await page.click('#recovery-form button[type=submit]');
+const ghRow = page.locator('#entry-list li', { hasText: 'GitHub' });
+check('recovery: 2FA badge and counter in the list',
+  (await ghRow.locator('.badge.twofa').textContent()) === '2FA'
+  && (await ghRow.locator('.recovery-left').textContent()) === '3 of 3 left');
+
+await ghRow.click();
+await page.waitForSelector('#recovery-dialog[open]');
+const recMasked = await page.evaluate(() => ({
+  texts: Array.from(document.querySelectorAll('#recovery-list .code-text')).map((s) => s.textContent),
+  inDom: document.querySelector('#recovery-dialog').textContent.includes('aaaa-1111'),
+}));
+check('recovery: codes are masked by default (not in the DOM)',
+  recMasked.texts.every((x) => x === '••••••') && !recMasked.inDom);
+await page.click('#recovery-toggle');
+check('recovery: Show reveals the codes in order',
+  (await page.locator('#recovery-list .code-text').allTextContents()).join(',') === 'aaaa-1111,bbbb-2222,cccc-3333');
+await page.click('#recovery-copy-next');
+await page.waitForFunction(() => window.__lastClip === 'aaaa-1111');
+check('recovery: copy next unused copies the first code (without marking it)', true);
+check('recovery: copying did not mark the code as used',
+  (await page.locator('#recovery-list .code-text.used').count()) === 0);
+await page.locator('#recovery-list li').first().locator('input[type=checkbox]').check();
+check('recovery: a used code is struck through',
+  (await page.locator('#recovery-list .code-text.used').count()) === 1);
+await page.click('#recovery-copy-next');
+await page.waitForFunction(() => window.__lastClip === 'bbbb-2222');
+check('recovery: copy next unused skips used codes', true);
+await page.click('#recovery-form button[type=submit]');
+check('recovery: the list counter reflects the used code',
+  (await ghRow.locator('.recovery-left').textContent()) === '2 of 3 left');
+
+// TOTP: known secret -> live code -> changes at the period boundary
+const TOTP_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+const totpConfig = { secret: TOTP_SECRET, period: 30, digits: 6, algorithm: 'SHA1' };
+const expectedCodes = async () => Promise.all(
+  [-30000, 0, 30000].map((d) => generateTotp(totpConfig, Date.now() + d)));
+await page.click('#new-login-btn');
+await page.fill('#entry-title', 'TOTP login');
+await page.fill('#entry-password', 'pw');
+await page.fill('#entry-totp', TOTP_SECRET);
+await page.waitForFunction(() => /^\d{6}$/.test(document.getElementById('totp-code').textContent));
+const liveCode = await page.textContent('#totp-code');
+check('totp: the live code matches the RFC computation', (await expectedCodes()).includes(liveCode));
+
+// the code rolls over at the period boundary (worst case ~31 s wait)
+const waitMs = (totpRemainingSeconds(30, Date.now()) + 2) * 1000;
+await page.waitForFunction(
+  (prev) => document.getElementById('totp-code').textContent !== prev,
+  liveCode, { timeout: waitMs + 5000 });
+check('totp: the code changes at the period boundary', true);
+
+await page.click('#entry-form button[type=submit]');
+const totpRow = page.locator('#entry-list li', { hasText: 'TOTP login' });
+await totpRow.locator('button', { hasText: '2FA' }).click();
+await page.waitForFunction(() => /^\d{6}$/.test(window.__lastClip || ''));
+const quickCopied = await page.evaluate(() => window.__lastClip);
+check('totp: the list 2FA quick-button copies the current code',
+  (await expectedCodes()).includes(quickCopied));
+
+// Trash: delete -> restore -> delete permanently -> empty trash
+await page.locator('#entry-list li', { hasText: 'Note <script>' }).click();
+await page.waitForSelector('#note-dialog[open]');
+await page.click('#note-delete');
+await page.waitForSelector('#confirm-dialog[open]');
+await page.click('#confirm-ok');
+await page.waitForFunction(() => !document.getElementById('note-dialog').open);
+check('trash: a deleted entry leaves the list', (await page.locator('#entry-list li').count()) === 2);
+await page.fill('#search', 'Note');
+check('trash: a deleted entry is not searchable', (await page.locator('#entry-list li').count()) === 0);
+await page.fill('#search', '');
+
+await page.click('#settings-btn');
+check('trash: the settings button shows the count', (await page.textContent('#trash-btn')) === 'Trash (1)');
+await page.click('#trash-btn');
+await page.waitForSelector('#trash-dialog[open]');
+check('trash: the deleted entry is listed', (await page.locator('#trash-list li').count()) === 1);
+await page.locator('#trash-list li button', { hasText: 'Restore' }).click();
+check('trash: restore empties the trash view', await page.isVisible('#trash-empty'));
+await page.click('#trash-close');
+await page.click('#settings-close');
+check('trash: the restored entry is back in the list', (await page.locator('#entry-list li').count()) === 3);
+
+// delete again, then permanently
+await page.locator('#entry-list li', { hasText: 'Note <script>' }).click();
+await page.waitForSelector('#note-dialog[open]');
+await page.click('#note-delete');
+await page.waitForSelector('#confirm-dialog[open]');
+await page.click('#confirm-ok');
+await page.waitForFunction(() => !document.getElementById('note-dialog').open);
+await page.click('#settings-btn');
+await page.click('#trash-btn');
+await page.waitForSelector('#trash-dialog[open]');
+await page.locator('#trash-list li button', { hasText: 'Delete permanently' }).click();
+await page.waitForSelector('#confirm-dialog[open]');
+await page.click('#confirm-ok');
+await page.waitForFunction(() => document.querySelectorAll('#trash-list li').length === 0);
+check('trash: permanent deletion removes the entry for good', true);
+await page.click('#trash-close');
+await page.click('#settings-close');
+check('trash: the permanently deleted entry is gone from the list',
+  (await page.locator('#entry-list li').count()) === 2);
+
+// empty trash
+await ghRow.click();
+await page.waitForSelector('#recovery-dialog[open]');
+await page.click('#recovery-delete');
+await page.waitForSelector('#confirm-dialog[open]');
+await page.click('#confirm-ok');
+await page.waitForFunction(() => !document.getElementById('recovery-dialog').open);
+await page.click('#settings-btn');
+await page.click('#trash-btn');
+await page.waitForSelector('#trash-dialog[open]');
+await page.click('#trash-empty-btn');
+await page.waitForSelector('#confirm-dialog[open]');
+await page.click('#confirm-ok');
+await page.waitForFunction(() => document.querySelectorAll('#trash-list li').length === 0);
+check('trash: empty trash clears everything', await page.isVisible('#trash-empty'));
+await page.click('#trash-close');
+
+// i18n: the v1.2 strings switch language
+await page.selectOption('#language-select', 'sv');
+check('i18n: v1.2 buttons in Swedish',
+  (await page.textContent('#new-note-btn')) === '+ Anteckning'
+  && (await page.textContent('#new-recovery-btn')) === '+ Återställningskoder'
+  && (await page.textContent('#trash-btn')) === 'Papperskorg (0)');
+await page.click('#settings-close');
+check('i18n: the recovery counter is not affected (entry deleted), main list intact',
+  (await page.locator('#entry-list li').count()) === 1);
 
 await page.close();
 await browser.close();

@@ -21,7 +21,7 @@ runs — offline, from `file://`, in any modern browser.
   on a USB stick, a cloud drive, an email to yourself — the contents stay
   encrypted wherever the file goes.
 - **Nothing to install, nothing to trust but the file.** Auditable by opening
-  it in a text editor: one HTML file, ~90 kB, readable source.
+  it in a text editor: one HTML file, ~140 kB, readable source.
 
 ## Security model
 
@@ -55,7 +55,11 @@ the data is gone.**
 are immutable and garbage collection decides when memory is reclaimed, so a
 process memory dump shortly after locking may in theory contain remnants.
 Clipboard auto-clear requires the tab to be focused, and OS clipboard
-history is outside the app's control. Seed phrases deserve extra caution:
+history is outside the app's control. **Storing TOTP secrets in Valv is a
+conscious trade-off:** your password and your second factor then live in
+the same vault, which is convenient but reduces two-factor authentication
+to one factor if the master password leaks — keep TOTP in a separate
+authenticator app if that risk matters to you. Seed phrases deserve extra caution:
 unlike passwords they cannot be rotated after a leak — for significant
 holdings keep the primary backup on paper or metal, offline, and treat Valv
 as a complement.
@@ -74,6 +78,21 @@ as a complement.
   an optional expiry date with a subtle expiring-soon indicator and a
   distinct expired marker in the list. Search matches title, service and
   URL — never the key or secret.
+- **Secure notes** — title plus free text; the body never enters the search
+  index and is always rendered inertly (never as HTML).
+- **Recovery codes** — paste a provider's code list and it splits into
+  individual codes automatically. Saved codes open masked; tick codes off
+  as used (struck through) and "Copy next unused" always grabs the first
+  remaining one — without marking it for you. The list shows how many
+  codes are left.
+- **TOTP / 2FA codes** — optional authenticator secret on login entries
+  (base32 or an `otpauth://` URI). Live 6-digit code with a per-second
+  countdown in the entry, plus a one-click 2FA copy button in the list.
+  RFC 6238 in pure WebCrypto, verified against the RFC test vectors.
+- **Trash** — deleting moves entries to a trash where they can be restored
+  or removed permanently; trashed entries disappear from the list, search
+  and all counters, and anything older than 30 days is purged
+  automatically at unlock.
 - **Password generator** — length 8–64, character-class toggles,
   `crypto.getRandomValues` with rejection sampling (no modulo bias).
 - **Auto-lock** after 1–30 minutes of inactivity (default 5), plus manual
@@ -125,11 +144,12 @@ twice in a row.
 
 ## Testing
 
-- **Node** (`npm test`): 15 tests — encrypt/decrypt round-trips at the full
+- **Node** (`npm test`): 23 tests — encrypt/decrypt round-trips at the full
   600 000 iterations, wrong-password and tamper rejection, nonce uniqueness,
-  format versioning, BIP39 validation, backward compatibility with vaults
-  from older versions, mixed-type vaults, i18n key parity.
-- **E2E** (`npm run test:e2e`): 73 checks in real Chromium — among them the
+  format versioning, BIP39 validation, TOTP against the RFC 6238 Appendix B
+  vectors, trash retention with a mocked clock, backward compatibility with
+  vaults from older versions, mixed-type vaults, i18n key parity.
+- **E2E** (`npm run test:e2e`): 102 checks in real Chromium — among them the
   project's core invariant: **a saved file, opened, must work identically
   and be able to save a working file in turn.** The suite runs two full
   save→reopen generations, plus seed phrase masking, upgrade-from-file,

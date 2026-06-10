@@ -21,7 +21,7 @@ offline, från `file://`, i alla moderna webbläsare.
   Lägg den på ett USB-minne, en molndisk, ett mejl till dig själv —
   innehållet förblir krypterat vart filen än tar vägen.
 - **Inget att installera, inget att lita på utom filen.** Granskningsbar i en
-  textredigerare: en HTML-fil, ~90 kB, läsbar källkod.
+  textredigerare: en HTML-fil, ~140 kB, läsbar källkod.
 
 ## Säkerhetsmodell
 
@@ -55,7 +55,11 @@ master-lösenord, eller ett glömt master-lösenord — **det finns ingen
 strängar är immutabla och skräpinsamlingen avgör när minne återvinns, så en
 minnesdump av processen strax efter låsning kan i teorin innehålla rester.
 Urklippsrensningen kräver att fliken har fokus, och operativsystemets
-urklippshistorik ligger utanför appens kontroll. Seed-fraser förtjänar extra
+urklippshistorik ligger utanför appens kontroll. **Att lagra TOTP-secrets i
+Valv är en medveten avvägning:** lösenordet och din andra faktor ligger då
+i samma valv — bekvämt, men tvåfaktorsautentiseringen reduceras till en
+faktor om master-lösenordet läcker. Ha TOTP i en separat authenticator-app
+om den risken spelar roll för dig. Seed-fraser förtjänar extra
 försiktighet: till skillnad från lösenord kan de inte roteras efter en läcka
 — ha den primära backupen på papper eller metall, offline, för innehav som
 betyder något, och se Valv som ett komplement.
@@ -75,6 +79,21 @@ betyder något, och se Valv som ett komplement.
   valfritt utgångsdatum med en diskret går-ut-snart-indikator och en tydlig
   utgången-markering i listan. Sökningen träffar titel, tjänst och URL —
   aldrig nyckeln eller secreten.
+- **Säkra anteckningar** — titel plus fritext; texten hamnar aldrig i
+  sökindexet och renderas alltid inert (aldrig som HTML).
+- **Återställningskoder** — klistra in tjänstens kodlista så delas den
+  automatiskt upp i enskilda koder. Sparade koder öppnas maskerade; bocka
+  av koder som använda (genomstrukna) och ”Kopiera nästa oanvända” tar
+  alltid första kvarvarande kod — utan att markera den åt dig. Listan
+  visar hur många koder som är kvar.
+- **TOTP / 2FA-koder** — valfri authenticator-secret på inloggningsposter
+  (base32 eller en `otpauth://`-URI). Löpande 6-siffrig kod med nedräkning
+  i posten, plus en 2FA-kopieringsknapp direkt i listan. RFC 6238 i ren
+  WebCrypto, verifierad mot RFC:ns testvektorer.
+- **Papperskorg** — radering flyttar poster till en papperskorg där de kan
+  återställas eller tas bort permanent; raderade poster försvinner ur
+  listan, sökningen och alla räknare, och allt äldre än 30 dagar rensas
+  automatiskt vid upplåsning.
 - **Lösenordsgenerator** — längd 8–64, teckenklass-val,
   `crypto.getRandomValues` med rejection sampling (ingen modulo-bias).
 - **Auto-lås** efter 1–30 minuters inaktivitet (standard 5), plus manuellt
@@ -126,12 +145,13 @@ att spara och återöppna filen två varv i rad.
 
 ## Tester
 
-- **Node** (`npm test`): 15 tester — encrypt/decrypt-round-trips med fulla
+- **Node** (`npm test`): 23 tester — encrypt/decrypt-round-trips med fulla
   600 000 iterationer, avvisning av fel lösenord och manipulerad data,
-  nonce-unikhet, formatversionering, BIP39-validering, bakåtkompatibilitet
-  med valv från äldre versioner, valv med blandade posttyper,
-  i18n-nyckelparitet.
-- **E2E** (`npm run test:e2e`): 73 kontroller i riktig Chromium — bland dem
+  nonce-unikhet, formatversionering, BIP39-validering, TOTP mot RFC 6238
+  Appendix B-vektorerna, papperskorgens 30-dagarslogik med mockad klocka,
+  bakåtkompatibilitet med valv från äldre versioner, valv med blandade
+  posttyper, i18n-nyckelparitet.
+- **E2E** (`npm run test:e2e`): 102 kontroller i riktig Chromium — bland dem
   projektets kärnkrav: **en sparad fil som öppnas ska fungera identiskt och
   i sin tur kunna spara en fungerande fil.** Sviten kör två fulla
   spara→återöppna-generationer, plus seed-frasmaskering, uppgradera-från-fil,

@@ -1,6 +1,6 @@
 {
   "name": "valv",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Single-file encrypted password manager — the file is both the app and the vault.",
   "type": "module",
   "private": true,

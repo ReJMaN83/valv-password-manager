@@ -1419,6 +1419,7 @@ $('language-select').addEventListener('change', () => {
   if (!STRINGS[chosen] || chosen === lang) return;
   lang = chosen;
   applyLanguage();
+  updateTrashButton(); // dynamic label, not covered by data-i18n
   // The choice is persisted in the vault block on save — mark as unsaved.
   markDirty();
 });
