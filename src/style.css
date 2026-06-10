@@ -128,7 +128,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 #settings-dialog section { padding: .9rem 0; border-bottom: 1px solid var(--border); }
 #settings-dialog section:last-of-type { border-bottom: none; }
 #settings-dialog section label:first-child, #settings-dialog section h3 + label { margin-top: .25rem; }
-#cp-submit, #export-btn { margin-top: .75rem; }
+#cp-submit, #export-btn, #upgrade-btn, #import-btn { margin-top: .75rem; }
 #autolock-minutes { max-width: 8rem; }
 
 .gen-options { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem .75rem; margin: .75rem 0; }

@@ -885,5 +885,166 @@ $('export-btn').addEventListener('click', async () => {
 });
 
 // ============================================================
+// Uppgradering och import
+//
+// Två vägar in i ett nytt (tomt) appskal:
+//  A) Importera JSON — läser den okrypterade exporten.
+//  B) Uppgradera från fil — läser #vault-data-blocket ur en äldre
+//     valv.html och dekrypterar med DEN filens master-lösenord.
+//     Datan förblir krypterad ända in i minnet, ingen okrypterad fil
+//     behövs på disk. Därför rekommenderas B i UI:t.
+// Den gamla filen läses enbart som TEXT (regex + JSON.parse) — dess
+// HTML/skript renderas eller körs aldrig.
+
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.classList.add('hidden');
+    document.body.append(input);
+    const done = (file) => { input.remove(); resolve(file); };
+    input.addEventListener('change', () => done(input.files[0] || null), { once: true });
+    input.addEventListener('cancel', () => done(null), { once: true });
+    input.click();
+  });
+}
+
+// Validerar att en vald fil är en valvfil och plockar ut det krypterade blocket.
+function parseVaultFile(html) {
+  const match = html.match(VAULT_BLOCK_RE);
+  if (!match) return { error: 'Ingen valvdata hittades i filen — är det verkligen en valv.html?' };
+  const text = match[2].trim();
+  if (!text) return { error: 'Filen är ett tomt valvskal utan data.' };
+  let blob;
+  try { blob = JSON.parse(text); } catch { return { error: 'Valvdatan i filen är skadad.' }; }
+  if (blob.version !== 1) {
+    return { error: `Filen använder ett okänt valvformat (version ${blob.version ?? '?'}).` };
+  }
+  if (blob.kdf !== 'PBKDF2-SHA256' || !Number.isInteger(blob.iterations)
+      || !blob.salt || !blob.nonce || !blob.ciphertext) {
+    return { error: 'Valvdatan i filen är ofullständig.' };
+  }
+  return { blob };
+}
+
+let mergeChoice = null;
+$('merge-merge').addEventListener('click', () => { mergeChoice = 'merge'; $('merge-dialog').close(); });
+$('merge-replace').addEventListener('click', () => { mergeChoice = 'replace'; $('merge-dialog').close(); });
+$('merge-cancel').addEventListener('click', () => $('merge-dialog').close());
+
+function chooseMergeMode(message) {
+  return new Promise((resolve) => {
+    $('merge-message').textContent = message;
+    mergeChoice = null;
+    const dlg = $('merge-dialog');
+    dlg.addEventListener('close', () => resolve(mergeChoice), { once: true });
+    dlg.showModal();
+  });
+}
+
+// Gemensam intagsväg för A och B: normalisera, fråga slå ihop/ersätt, ta in.
+async function takeInEntries(rawEntries, sourceLabel) {
+  const now = new Date().toISOString();
+  const incoming = [];
+  let skipped = 0;
+  for (const raw of rawEntries) {
+    if (!raw || typeof raw !== 'object' || typeof raw.title !== 'string') { skipped++; continue; }
+    const entry = normalizeEntry(raw);
+    if (typeof entry.id !== 'string' || !entry.id) entry.id = crypto.randomUUID();
+    if (!entry.created) entry.created = now;
+    if (!entry.modified) entry.modified = now;
+    incoming.push(entry);
+  }
+  if (!incoming.length) {
+    toast(`Inga giltiga poster hittades i ${sourceLabel}.`);
+    return;
+  }
+  let message = `${incoming.length} poster hittades i ${sourceLabel}. `
+    + `Slå ihop med dina ${state.entries.length} befintliga poster, eller ersätt allt?`;
+  if (skipped > 0) message += ` (${skipped} poster hoppades över — ogiltigt format.)`;
+  const mode = await chooseMergeMode(message);
+  if (!mode) return;
+  if (mode === 'replace') {
+    if (state.entries.length > 0) {
+      const ok = await confirmDialog(
+        `Ersätta ALLT? Dina ${state.entries.length} befintliga poster tas bort.`, 'Ersätt');
+      if (!ok) return;
+    }
+    state.entries = incoming;
+  } else {
+    const existingIds = new Set(state.entries.map((e) => e.id));
+    for (const entry of incoming) {
+      // id-krock (t.ex. samma export intagen två gånger): behåll båda
+      // posterna med nytt id — aldrig tyst dataförlust.
+      if (existingIds.has(entry.id)) entry.id = crypto.randomUUID();
+      state.entries.push(entry);
+    }
+  }
+  markDirty();
+  renderList();
+  $('settings-dialog').close();
+  toast(`${incoming.length} poster intagna${mode === 'replace' ? ' (ersatte allt)' : ''}. Glöm inte att spara.`);
+}
+
+// A) Import av okrypterad JSON-export
+$('import-btn').addEventListener('click', async () => {
+  const file = await pickFile('.json,application/json');
+  if (!file) return;
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { toast('Filen är inte giltig JSON.'); return; }
+  if (!data || typeof data !== 'object' || !Array.isArray(data.entries)) {
+    toast('Filen ser inte ut som en Valv-export (fältet entries saknas).');
+    return;
+  }
+  await takeInEntries(data.entries, 'JSON-filen');
+});
+
+// B) Uppgradera från en äldre valv.html
+let upgradeBlob = null;
+
+$('upgrade-btn').addEventListener('click', async () => {
+  const file = await pickFile('.html,text/html');
+  if (!file) return;
+  const parsed = parseVaultFile(await file.text());
+  if (parsed.error) { toast(parsed.error); return; }
+  upgradeBlob = parsed.blob;
+  $('upgrade-filename').textContent = `Fil: ${file.name}`;
+  $('upgrade-password').value = '';
+  $('upgrade-error').classList.add('hidden');
+  $('upgrade-dialog').showModal();
+  $('upgrade-password').focus();
+});
+
+$('upgrade-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!upgradeBlob) return;
+  const password = $('upgrade-password').value;
+  if (!password) return;
+  const btn = $('upgrade-unlock');
+  btn.disabled = true;
+  btn.textContent = 'Dekrypterar…';
+  try {
+    const key = await deriveKey(password, fromBase64(upgradeBlob.salt), upgradeBlob.iterations);
+    const payload = JSON.parse(await decryptWithKey(key, upgradeBlob.nonce, upgradeBlob.ciphertext));
+    $('upgrade-dialog').close();
+    await takeInEntries(Array.isArray(payload.entries) ? payload.entries : [], 'den gamla valvfilen');
+  } catch {
+    $('upgrade-error').textContent = 'Fel lösenord för den valda filen.';
+    $('upgrade-error').classList.remove('hidden');
+    $('upgrade-password').select();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lås upp filen';
+  }
+});
+
+$('upgrade-cancel').addEventListener('click', () => $('upgrade-dialog').close());
+$('upgrade-dialog').addEventListener('close', () => {
+  $('upgrade-password').value = '';
+  upgradeBlob = null;
+});
+
+// ============================================================
 // Start
 init();
