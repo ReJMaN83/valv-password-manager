@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml)
 
-> 📸 *Screenshot/GIF placeholder — dark-mode main view with the entry list and seed phrase grid.*
+<img width="1078" height="508" alt="image" src="https://github.com/user-attachments/assets/a01f2dd0-7749-473a-bda1-383a390c9b71" />
 
 `valv.html` is a complete password manager in one HTML file: the application
 code and your encrypted data travel together. Double-click the file and it
