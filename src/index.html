@@ -55,6 +55,8 @@
         <button id="new-login-btn" class="primary" data-i18n="newLogin">+ Login</button>
         <button id="new-seed-btn" class="primary" data-i18n="newSeed">+ Seed phrase</button>
         <button id="new-apikey-btn" class="primary" data-i18n="newApikey">+ API key</button>
+        <button id="new-note-btn" class="primary" data-i18n="newNote">+ Note</button>
+        <button id="new-recovery-btn" class="primary" data-i18n="newRecovery">+ Recovery codes</button>
         <button id="generator-btn" data-i18n="generator">Generator</button>
         <button id="settings-btn" data-i18n="settings">Settings</button>
       </div>
@@ -81,6 +83,18 @@
       <button type="button" id="entry-generate" data-i18n="generate" data-i18n-title="openGeneratorTitle" title="Open the password generator">Generate</button>
       <button type="button" id="entry-copy-password" data-i18n="copy" data-i18n-title="copyPasswordTitle" title="Copy password">Copy</button>
     </div>
+    <label for="entry-totp" data-i18n="labelTotp">TOTP secret (optional)</label>
+    <div class="input-row">
+      <input id="entry-totp" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder="totpPlaceholder" placeholder="Base32 or otpauth:// URI">
+      <button type="button" id="entry-toggle-totp" data-i18n-title="showHideTotpTitle" title="Show or hide the TOTP secret">Show</button>
+    </div>
+    <div id="totp-live" class="totp-live hidden">
+      <span class="small" data-i18n="totpCurrentCode">Current code</span>
+      <span id="totp-code"></span>
+      <div class="totp-bar"><div id="totp-bar-fill"></div></div>
+      <button type="button" id="totp-copy" data-i18n="copy" data-i18n-title="copyTotpTitle" title="Copy current TOTP code">Copy</button>
+    </div>
+    <p id="entry-error" class="error hidden"></p>
     <label for="entry-url" data-i18n="labelUrl">URL</label>
     <input id="entry-url" type="text" autocomplete="off">
     <label for="entry-notes" data-i18n="labelNotes">Notes</label>
@@ -179,6 +193,66 @@
   </form>
 </dialog>
 
+<dialog id="note-dialog">
+  <form id="note-form">
+    <h2 id="note-dialog-title">New note</h2>
+    <label for="note-title" data-i18n="labelTitle">Title</label>
+    <input id="note-title" type="text" required>
+    <label for="note-body" data-i18n="labelBody">Text</label>
+    <textarea id="note-body" rows="8"></textarea>
+    <div class="dialog-buttons">
+      <button type="button" id="note-delete" class="danger hidden" data-i18n="deleteBtn">Delete</button>
+      <button type="button" id="note-copy" data-i18n="copyBody">Copy text</button>
+      <span class="spacer"></span>
+      <button type="button" id="note-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="recovery-dialog">
+  <form id="recovery-form">
+    <h2 id="recovery-dialog-title">New recovery codes</h2>
+    <label for="recovery-title" data-i18n="labelTitle">Title</label>
+    <input id="recovery-title" type="text" required>
+    <label for="recovery-service" data-i18n="labelService">Service</label>
+    <input id="recovery-service" type="text" autocomplete="off">
+    <div class="seed-words-head">
+      <span class="small" id="recovery-counter"></span>
+      <span class="spacer"></span>
+      <button type="button" id="recovery-toggle" class="hidden">Show</button>
+    </div>
+    <ul id="recovery-list"></ul>
+    <p id="recovery-error" class="error hidden"></p>
+    <label for="recovery-paste" data-i18n="labelCodesPaste">Paste codes (split on lines and spaces)</label>
+    <div class="input-row">
+      <textarea id="recovery-paste" rows="3" spellcheck="false"></textarea>
+      <button type="button" id="recovery-add" data-i18n="addCodesBtn">Add codes</button>
+    </div>
+    <label for="recovery-notes" data-i18n="labelNotes">Notes</label>
+    <textarea id="recovery-notes" rows="2"></textarea>
+    <div class="dialog-buttons">
+      <button type="button" id="recovery-delete" class="danger hidden" data-i18n="deleteBtn">Delete</button>
+      <button type="button" id="recovery-copy-next" data-i18n="copyNextUnused">Copy next unused</button>
+      <span class="spacer"></span>
+      <button type="button" id="recovery-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="trash-dialog">
+  <h2 data-i18n="trashTitle">Trash</h2>
+  <p class="small" data-i18n="trashRetentionNote">Entries in the trash are removed permanently after 30 days.</p>
+  <ul id="trash-list"></ul>
+  <p id="trash-empty" class="small center hidden" data-i18n="trashEmptyState">The trash is empty.</p>
+  <div class="dialog-buttons">
+    <button type="button" id="trash-empty-btn" class="danger" data-i18n="emptyTrashBtn">Empty trash</button>
+    <span class="spacer"></span>
+    <button type="button" id="trash-close" class="primary" data-i18n="close">Close</button>
+  </div>
+</dialog>
+
 <dialog id="generator-dialog">
   <h2 data-i18n="genTitle">Password generator</h2>
   <label for="gen-length"><span data-i18n="genLength">Length:</span> <span id="gen-length-value">20</span></label>
@@ -226,6 +300,9 @@
     <input type="password" id="cp-new2" autocomplete="off">
     <p id="cp-message" class="small hidden"></p>
     <button type="button" id="cp-submit" data-i18n="setChangeBtn">Change password</button>
+  </section>
+  <section>
+    <button type="button" id="trash-btn">Trash (0)</button>
   </section>
   <section>
     <h3 data-i18n="setUpgradeTitle">Upgrade / import</h3>

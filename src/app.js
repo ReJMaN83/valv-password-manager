@@ -246,8 +246,16 @@ async function openVault(key, salt, iterations, payload) {
   state.key = key;
   state.salt = salt;
   state.iterations = iterations;
-  // normalizeEntry gives entries from older vaults (no type field) type "login"
-  state.entries = (Array.isArray(payload.entries) ? payload.entries : []).map(normalizeEntry);
+  // normalizeEntry gives entries from older vaults (no type field) type
+  // "login" and defaults deleted=false; entries trashed more than 30 days
+  // ago are purged for good at unlock (documented in the README).
+  const normalized = (Array.isArray(payload.entries) ? payload.entries : []).map(normalizeEntry);
+  const kept = purgeExpiredTrash(normalized, Date.now());
+  if (kept.length !== normalized.length) {
+    setDirty(true);
+    toast(t('trashAutoPurged', normalized.length - kept.length));
+  }
+  state.entries = kept;
   state.settings = Object.assign({ autoLockMinutes: 5 }, payload.meta && payload.meta.settings);
   // Encrypted check string: lets "change password" verify the current
   // password without the password, or any hash of it, being stored anywhere.
@@ -348,15 +356,19 @@ function renderList() {
   if (!state.entries) return;
   // The search index never includes secret material: seed entries match on
   // title + wallet (never the words), API key entries on title + service +
-  // url (never key/secret).
+  // url (never key/secret), notes on title only (never the body), recovery
+  // entries on title + service (never the codes).
   const matchesQuery = (e) => {
     if (!query) return true;
     const haystacks = e.type === 'seed' ? [e.title, e.wallet]
       : e.type === 'apikey' ? [e.title, e.service, e.url]
+      : e.type === 'note' ? [e.title]
+      : e.type === 'recovery' ? [e.title, e.service]
       : [e.title, e.username, e.url];
     return haystacks.some((value) => (value || '').toLowerCase().includes(query));
   };
   const matches = state.entries
+    .filter((e) => !e.deleted) // trashed entries are excluded everywhere
     .filter(matchesQuery)
     .sort((a, b) => (a.title || '').localeCompare(b.title || '', lang, { sensitivity: 'base' }));
 
@@ -365,6 +377,8 @@ function renderList() {
     li.tabIndex = 0;
     const isSeed = entry.type === 'seed';
     const isApikey = entry.type === 'apikey';
+    const isNote = entry.type === 'note';
+    const isRecovery = entry.type === 'recovery';
 
     const info = document.createElement('div');
     info.className = 'entry-info';
@@ -375,6 +389,8 @@ function renderList() {
     sub.className = 'entry-sub';
     sub.textContent = isSeed ? (entry.wallet || '')
       : isApikey ? (entry.service || entry.url || '')
+      : isNote ? '' // the note body never appears in the list
+      : isRecovery ? (entry.service || '')
       : (entry.username || entry.url || '');
     info.append(title, sub);
 
@@ -410,6 +426,20 @@ function renderList() {
       badge.className = 'badge api';
       badge.textContent = 'API';
       actions.append(badge);
+    } else if (isNote) {
+      const badge = document.createElement('span');
+      badge.className = 'badge note';
+      badge.textContent = 'NOTE';
+      actions.append(badge);
+    } else if (isRecovery) {
+      const codes = entry.codes || [];
+      const counter = document.createElement('span');
+      counter.className = 'recovery-left';
+      counter.textContent = t('recoveryLeft', codes.filter((c) => !c.used).length, codes.length);
+      const badge = document.createElement('span');
+      badge.className = 'badge twofa';
+      badge.textContent = '2FA';
+      actions.append(counter, badge);
     } else {
       actions.append(
         makeButton(t('listCopyUser'), t('copyUserTitle'), (ev) => {
@@ -421,10 +451,24 @@ function renderList() {
           copySecret(entry.password, t('passwordWord'));
         }),
       );
+      if (entry.totpSecret) {
+        actions.append(makeButton(t('listCopyTotp'), t('copyTotpTitle'), async (ev) => {
+          ev.stopPropagation();
+          const code = await generateTotp({
+            secret: entry.totpSecret,
+            period: entry.totpPeriod,
+            digits: entry.totpDigits,
+            algorithm: entry.totpAlgorithm,
+          }, Date.now());
+          copySecret(code, t('totpCodeWord'));
+        }));
+      }
     }
 
     const open = () => (isSeed ? openSeedDialog(entry.id)
       : isApikey ? openApikeyDialog(entry.id)
+      : isNote ? openNoteDialog(entry.id)
+      : isRecovery ? openRecoveryDialog(entry.id)
       : openEntryDialog(entry.id));
     li.append(info, actions);
     li.addEventListener('click', open);
@@ -456,7 +500,7 @@ $('search').addEventListener('input', renderList);
 
 // ============================================================
 // Entry dialog: create, edit, delete (logins)
-const ENTRY_FIELDS = ['entry-title', 'entry-username', 'entry-password', 'entry-url', 'entry-notes'];
+const ENTRY_FIELDS = ['entry-title', 'entry-username', 'entry-password', 'entry-totp', 'entry-url', 'entry-notes'];
 
 function openEntryDialog(id) {
   state.editingId = id || null;
@@ -467,9 +511,16 @@ function openEntryDialog(id) {
   $('entry-password').value = entry ? entry.password : '';
   $('entry-password').type = 'password';
   $('entry-toggle-password').textContent = t('show');
+  $('entry-totp').value = entry ? entry.totpSecret || '' : '';
+  $('entry-totp').type = 'password';
+  $('entry-toggle-totp').textContent = t('show');
+  $('entry-error').classList.add('hidden');
   $('entry-url').value = entry ? entry.url : '';
   $('entry-notes').value = entry ? entry.notes : '';
   $('entry-delete').classList.toggle('hidden', !entry);
+  updateTotpPreview();
+  clearInterval(totpTimer);
+  totpTimer = setInterval(tickTotp, 1000);
   $('entry-dialog').showModal();
   $('entry-title').focus();
 }
@@ -477,6 +528,8 @@ function openEntryDialog(id) {
 $('new-login-btn').addEventListener('click', () => openEntryDialog(null));
 $('new-seed-btn').addEventListener('click', () => openSeedDialog(null));
 $('new-apikey-btn').addEventListener('click', () => openApikeyDialog(null));
+$('new-note-btn').addEventListener('click', () => openNoteDialog(null));
+$('new-recovery-btn').addEventListener('click', () => openRecoveryDialog(null));
 $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 
 // Clear the fields even when the dialog is closed with Escape, so that
@@ -484,6 +537,63 @@ $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 $('entry-dialog').addEventListener('close', () => {
   for (const fieldId of ENTRY_FIELDS) $(fieldId).value = '';
   state.editingId = null;
+  clearInterval(totpTimer);
+  totpTimer = null;
+  totpPreview = null;
+  $('totp-code').textContent = '';
+  $('totp-live').classList.add('hidden');
+});
+
+// ---- Live TOTP preview inside the entry dialog ----
+// Regenerated every second while the dialog is open; the countdown bar
+// empties towards the period boundary, where a fresh code appears.
+let totpTimer = null;
+let totpPreview = null;
+
+function totpConfigFromEntry(entry) {
+  return {
+    secret: entry.totpSecret,
+    period: entry.totpPeriod || TOTP_DEFAULTS.period,
+    digits: entry.totpDigits || TOTP_DEFAULTS.digits,
+    algorithm: entry.totpAlgorithm || TOTP_DEFAULTS.algorithm,
+  };
+}
+
+function updateTotpPreview() {
+  const raw = $('entry-totp').value.trim();
+  if (!raw) {
+    totpPreview = null;
+  } else {
+    const existing = state.editingId && state.entries.find((e) => e.id === state.editingId);
+    // unchanged stored secret keeps its stored period/digits/algorithm
+    // (they may have come from an otpauth:// URI that is no longer shown)
+    totpPreview = (existing && raw === existing.totpSecret)
+      ? totpConfigFromEntry(existing)
+      : parseTotpInput(raw);
+  }
+  $('totp-live').classList.toggle('hidden', !totpPreview);
+  if (totpPreview) tickTotp();
+}
+
+async function tickTotp() {
+  const config = totpPreview;
+  if (!config || !$('entry-dialog').open) return;
+  const code = await generateTotp(config, Date.now());
+  if (config !== totpPreview) return; // the input changed while we computed
+  $('totp-code').textContent = code;
+  $('totp-bar-fill').style.width =
+    (totpRemainingSeconds(config.period, Date.now()) / config.period * 100) + '%';
+}
+
+$('entry-totp').addEventListener('input', updateTotpPreview);
+$('entry-toggle-totp').addEventListener('click', () => {
+  const field = $('entry-totp');
+  const show = field.type === 'password';
+  field.type = show ? 'text' : 'password';
+  $('entry-toggle-totp').textContent = show ? t('hide') : t('show');
+});
+$('totp-copy').addEventListener('click', () => {
+  copySecret($('totp-code').textContent, t('totpCodeWord'));
 });
 
 $('entry-form').addEventListener('submit', (event) => {
@@ -497,9 +607,32 @@ $('entry-form').addEventListener('submit', (event) => {
     notes: $('entry-notes').value,
   };
   if (!values.title) return;
-  if (state.editingId) {
-    const entry = state.entries.find((e) => e.id === state.editingId);
-    if (entry) Object.assign(entry, values, { modified: now });
+  const existing = state.editingId ? state.entries.find((e) => e.id === state.editingId) : null;
+  // optional TOTP secret: base32 or otpauth:// URI; empty clears it
+  const totpRaw = $('entry-totp').value.trim();
+  if (totpRaw) {
+    const parsed = (existing && totpRaw === existing.totpSecret)
+      ? totpConfigFromEntry(existing)
+      : parseTotpInput(totpRaw);
+    if (!parsed) {
+      const error = $('entry-error');
+      error.textContent = t('totpInvalid');
+      error.classList.remove('hidden');
+      return;
+    }
+    values.totpSecret = parsed.secret;
+    values.totpPeriod = parsed.period;
+    values.totpDigits = parsed.digits;
+    values.totpAlgorithm = parsed.algorithm;
+  } else {
+    // undefined-valued keys are dropped by JSON.stringify on save
+    values.totpSecret = undefined;
+    values.totpPeriod = undefined;
+    values.totpDigits = undefined;
+    values.totpAlgorithm = undefined;
+  }
+  if (existing) {
+    Object.assign(existing, values, { modified: now });
   } else {
     state.entries.push({ id: crypto.randomUUID(), type: 'login', ...values, created: now, modified: now });
   }
@@ -508,14 +641,19 @@ $('entry-form').addEventListener('submit', (event) => {
   renderList();
 });
 
-$('entry-delete').addEventListener('click', async () => {
-  const entry = state.entries && state.entries.find((e) => e.id === state.editingId);
-  if (!entry) return;
-  if (!(await confirmDialog(t('deleteEntryConfirm', entry.title), t('deleteBtn')))) return;
-  state.entries = state.entries.filter((e) => e.id !== entry.id);
+// Deleting moves to the trash (soft delete) — restorable for 30 days.
+async function moveToTrash(entry, dialogId) {
+  if (!(await confirmDialog(t('trashConfirm', entry.title), t('deleteBtn')))) return;
+  entry.deleted = true;
+  entry.deletedAt = new Date().toISOString();
   markDirty();
-  $('entry-dialog').close();
+  $(dialogId).close();
   renderList();
+}
+
+$('entry-delete').addEventListener('click', () => {
+  const entry = state.entries && state.entries.find((e) => e.id === state.editingId);
+  if (entry) moveToTrash(entry, 'entry-dialog');
 });
 
 $('entry-toggle-password').addEventListener('click', () => {
@@ -712,14 +850,9 @@ $('seed-dialog').addEventListener('close', () => {
   seedWordsShown = false;
 });
 
-$('seed-delete').addEventListener('click', async () => {
+$('seed-delete').addEventListener('click', () => {
   const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
-  if (!entry) return;
-  if (!(await confirmDialog(t('seedDeleteConfirm', entry.title), t('deleteBtn')))) return;
-  state.entries = state.entries.filter((e) => e.id !== entry.id);
-  markDirty();
-  $('seed-dialog').close();
-  renderList();
+  if (entry) moveToTrash(entry, 'seed-dialog');
 });
 
 $('seed-toggle-passphrase').addEventListener('click', () => {
@@ -875,14 +1008,9 @@ $('apikey-dialog').addEventListener('close', () => {
   apikeyFieldMode.secret = 'hidden';
 });
 
-$('apikey-delete').addEventListener('click', async () => {
+$('apikey-delete').addEventListener('click', () => {
   const entry = state.entries && state.entries.find((e) => e.id === apikeyEditingId);
-  if (!entry) return;
-  if (!(await confirmDialog(t('apikeyDeleteConfirm', entry.title), t('deleteBtn')))) return;
-  state.entries = state.entries.filter((e) => e.id !== entry.id);
-  markDirty();
-  $('apikey-dialog').close();
-  renderList();
+  if (entry) moveToTrash(entry, 'apikey-dialog');
 });
 
 $('apikey-copy-key').addEventListener('click', () => {
@@ -894,6 +1022,251 @@ $('apikey-copy-secret').addEventListener('click', () => {
   const entry = apikeyEditingId && state.entries.find((e) => e.id === apikeyEditingId);
   const value = apikeyFieldMode.secret === 'masked' ? (entry && entry.secret) : $('apikey-secret').value;
   copySecret(value, t('apiSecretWord'));
+});
+
+// ============================================================
+// Secure notes
+//
+// The body is plain free text. It is rendered only via textContent /
+// textarea value (never innerHTML) and is never part of the search index.
+let noteEditingId = null;
+
+function openNoteDialog(id) {
+  noteEditingId = id || null;
+  const entry = id ? state.entries.find((e) => e.id === id) : null;
+  $('note-dialog-title').textContent = entry ? t('noteTitleEdit') : t('noteTitleNew');
+  $('note-title').value = entry ? entry.title : '';
+  $('note-body').value = entry ? entry.body || '' : '';
+  $('note-delete').classList.toggle('hidden', !entry);
+  $('note-dialog').showModal();
+  $('note-title').focus();
+}
+
+$('note-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const title = $('note-title').value.trim();
+  if (!title) return;
+  const now = new Date().toISOString();
+  const values = { type: 'note', title, body: $('note-body').value };
+  const existing = noteEditingId ? state.entries.find((e) => e.id === noteEditingId) : null;
+  if (existing) {
+    Object.assign(existing, values, { modified: now });
+  } else {
+    state.entries.push({ id: crypto.randomUUID(), ...values, created: now, modified: now });
+  }
+  markDirty();
+  $('note-dialog').close();
+  renderList();
+});
+
+$('note-cancel').addEventListener('click', () => $('note-dialog').close());
+$('note-dialog').addEventListener('close', () => {
+  $('note-title').value = '';
+  $('note-body').value = '';
+  noteEditingId = null;
+});
+$('note-delete').addEventListener('click', () => {
+  const entry = state.entries && state.entries.find((e) => e.id === noteEditingId);
+  if (entry) moveToTrash(entry, 'note-dialog');
+});
+$('note-copy').addEventListener('click', () => {
+  copySecret($('note-body').value, t('noteWord'));
+});
+
+// ============================================================
+// Recovery codes
+//
+// The working list (code + used flag) lives in JS memory while the dialog
+// is open. For saved entries the codes are MASKED in the DOM by default —
+// rows show dots until Show is clicked, same model as the seed words.
+// "Copy next unused" copies the first unused code but deliberately does
+// NOT mark it as used; the user ticks the box once the login succeeded.
+let recoveryEditingId = null;
+let recoveryShown = false;
+let recoveryCodes = [];
+
+function updateRecoveryCounter() {
+  const total = recoveryCodes.length;
+  const left = recoveryCodes.filter((c) => !c.used).length;
+  $('recovery-counter').textContent = total ? t('recoveryLeft', left, total) : '';
+}
+
+function renderRecoveryCodes() {
+  const list = $('recovery-list');
+  list.textContent = '';
+  recoveryCodes.forEach((item, index) => {
+    const li = document.createElement('li');
+    const num = document.createElement('span');
+    num.className = 'code-num';
+    num.textContent = String(index + 1);
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !!item.used;
+    checkbox.title = t('markUsedTitle');
+    checkbox.addEventListener('change', () => {
+      item.used = checkbox.checked;
+      renderRecoveryCodes();
+    });
+    const code = document.createElement('span');
+    code.className = 'code-text' + (item.used ? ' used' : '');
+    code.textContent = recoveryShown ? item.code : '••••••';
+    li.append(num, checkbox, code);
+    if (recoveryShown) {
+      const remove = makeButton('✕', t('removeCodeTitle'), () => {
+        recoveryCodes.splice(index, 1);
+        renderRecoveryCodes();
+      });
+      remove.className = 'code-remove';
+      li.append(remove);
+    }
+    list.append(li);
+  });
+  updateRecoveryCounter();
+}
+
+function openRecoveryDialog(id) {
+  recoveryEditingId = id || null;
+  const entry = id ? state.entries.find((e) => e.id === id) : null;
+  $('recovery-dialog-title').textContent = entry ? t('recoveryTitleEdit') : t('recoveryTitleNew');
+  $('recovery-title').value = entry ? entry.title : '';
+  $('recovery-service').value = entry ? entry.service || '' : '';
+  $('recovery-notes').value = entry ? entry.notes || '' : '';
+  $('recovery-paste').value = '';
+  $('recovery-error').classList.add('hidden');
+  $('recovery-delete').classList.toggle('hidden', !entry);
+  recoveryCodes = entry ? (entry.codes || []).map((c) => ({ code: c.code, used: !!c.used })) : [];
+  recoveryShown = !entry; // saved codes start masked
+  $('recovery-toggle').classList.toggle('hidden', !entry);
+  $('recovery-toggle').textContent = t('show');
+  renderRecoveryCodes();
+  $('recovery-dialog').showModal();
+  $('recovery-title').focus();
+}
+
+$('recovery-toggle').addEventListener('click', () => {
+  recoveryShown = !recoveryShown;
+  $('recovery-toggle').textContent = recoveryShown ? t('hide') : t('show');
+  renderRecoveryCodes();
+});
+
+$('recovery-add').addEventListener('click', () => {
+  const codes = splitRecoveryCodes($('recovery-paste').value);
+  if (!codes.length) return;
+  for (const code of codes) recoveryCodes.push({ code, used: false });
+  $('recovery-paste').value = '';
+  if (!recoveryEditingId) recoveryShown = true;
+  renderRecoveryCodes();
+});
+
+$('recovery-copy-next').addEventListener('click', () => {
+  const next = recoveryCodes.find((c) => !c.used);
+  if (!next) { toast(t('noUnusedCodes')); return; }
+  copySecret(next.code, t('recoveryCodeWord'));
+});
+
+$('recovery-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const title = $('recovery-title').value.trim();
+  if (!title) return;
+  if (!recoveryCodes.length) {
+    const error = $('recovery-error');
+    error.textContent = t('recoveryNoCodes');
+    error.classList.remove('hidden');
+    return;
+  }
+  const now = new Date().toISOString();
+  const values = {
+    type: 'recovery',
+    title,
+    service: $('recovery-service').value.trim(),
+    codes: recoveryCodes.map((c) => ({ code: c.code, used: !!c.used })),
+    notes: $('recovery-notes').value,
+  };
+  const existing = recoveryEditingId ? state.entries.find((e) => e.id === recoveryEditingId) : null;
+  if (existing) {
+    Object.assign(existing, values, { modified: now });
+  } else {
+    state.entries.push({ id: crypto.randomUUID(), ...values, created: now, modified: now });
+  }
+  markDirty();
+  $('recovery-dialog').close();
+  renderList();
+});
+
+$('recovery-cancel').addEventListener('click', () => $('recovery-dialog').close());
+$('recovery-dialog').addEventListener('close', () => {
+  for (const id of ['recovery-title', 'recovery-service', 'recovery-paste', 'recovery-notes']) {
+    $(id).value = '';
+  }
+  $('recovery-list').textContent = '';
+  $('recovery-counter').textContent = '';
+  recoveryCodes = [];
+  recoveryEditingId = null;
+  recoveryShown = false;
+});
+$('recovery-delete').addEventListener('click', () => {
+  const entry = state.entries && state.entries.find((e) => e.id === recoveryEditingId);
+  if (entry) moveToTrash(entry, 'recovery-dialog');
+});
+
+// ============================================================
+// Trash
+const trashEntries = () => (state.entries ? state.entries.filter((e) => e.deleted) : []);
+
+function updateTrashButton() {
+  $('trash-btn').textContent = t('trashBtn', trashEntries().length);
+}
+
+function renderTrash() {
+  const list = $('trash-list');
+  list.textContent = '';
+  const items = trashEntries();
+  $('trash-empty').classList.toggle('hidden', items.length > 0);
+  $('trash-empty-btn').disabled = items.length === 0;
+  for (const entry of items) {
+    const li = document.createElement('li');
+    const info = document.createElement('div');
+    info.className = 'entry-info';
+    const title = document.createElement('span');
+    title.className = 'entry-title';
+    title.textContent = entry.title;
+    const sub = document.createElement('span');
+    sub.className = 'entry-sub';
+    sub.textContent = t('trashDeletedOn', (entry.deletedAt || '').slice(0, 10));
+    info.append(title, sub);
+    li.append(info,
+      makeButton(t('restoreBtn'), t('restoreBtn'), () => {
+        entry.deleted = false;
+        delete entry.deletedAt;
+        markDirty();
+        renderTrash();
+        updateTrashButton();
+        renderList();
+      }),
+      makeButton(t('deleteForeverBtn'), t('deleteForeverBtn'), async () => {
+        if (!(await confirmDialog(t('deleteForeverConfirm', entry.title), t('deleteForeverBtn')))) return;
+        state.entries = state.entries.filter((e) => e.id !== entry.id);
+        markDirty();
+        renderTrash();
+        updateTrashButton();
+      }));
+    list.append(li);
+  }
+}
+
+$('trash-btn').addEventListener('click', () => {
+  renderTrash();
+  $('trash-dialog').showModal();
+});
+$('trash-close').addEventListener('click', () => $('trash-dialog').close());
+$('trash-empty-btn').addEventListener('click', async () => {
+  const count = trashEntries().length;
+  if (!count) return;
+  if (!(await confirmDialog(t('emptyTrashConfirm', count), t('emptyTrashBtn')))) return;
+  state.entries = state.entries.filter((e) => !e.deleted);
+  markDirty();
+  renderTrash();
+  updateTrashButton();
 });
 
 // ============================================================
@@ -1031,6 +1404,7 @@ $('generator-dialog').addEventListener('close', () => { $('gen-output').value = 
 // Settings: language, auto-lock, change master password, export
 $('settings-btn').addEventListener('click', () => {
   $('language-select').value = lang;
+  updateTrashButton();
   $('autolock-minutes').value = state.settings.autoLockMinutes;
   $('cp-message').classList.add('hidden');
   $('settings-dialog').showModal();
@@ -1191,7 +1565,7 @@ async function takeInEntries(rawEntries) {
     toast(t('mergeNoEntries'));
     return;
   }
-  let message = t('mergeMessage', incoming.length, state.entries.length);
+  let message = t('mergeMessage', incoming.length, state.entries.filter((e) => !e.deleted).length);
   if (skipped > 0) message += t('mergeSkippedSuffix', skipped);
   const mode = await chooseMergeMode(message);
   if (!mode) return;

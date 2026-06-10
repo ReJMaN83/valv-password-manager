@@ -148,9 +148,36 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   padding: 0 .3rem;
 }
 .badge.api { color: var(--accent); border-color: var(--accent); }
-.expiry { flex-shrink: 0; font-size: .75rem; }
+.badge.note { color: var(--fg-dim); border-color: var(--fg-dim); }
+.badge.twofa { color: var(--warn); border-color: var(--warn); }
+.expiry, .recovery-left { flex-shrink: 0; font-size: .75rem; color: var(--fg-dim); }
 .expiry.warn { color: var(--warn); }
 .expiry.expired { color: var(--danger); font-weight: 700; }
+
+/* Recovery codes */
+#recovery-list { list-style: none; margin: .5rem 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+#recovery-list li { display: flex; align-items: center; gap: .5rem; padding: .2rem 0; border-bottom: none; cursor: default; }
+#recovery-list li:hover { background: transparent; }
+#recovery-list .code-num { color: var(--fg-dim); font-size: .75rem; min-width: 1.4rem; text-align: right; user-select: none; }
+#recovery-list .code-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; flex: 1; }
+#recovery-list .code-text.used { text-decoration: line-through; color: var(--fg-dim); }
+#recovery-list input[type="checkbox"] { width: auto; }
+#recovery-list .code-remove { padding: .1rem .45rem; font-size: .8rem; }
+.input-row textarea { flex: 1; min-width: 0; }
+
+/* TOTP */
+.totp-live { display: flex; align-items: center; gap: .6rem; margin-top: .5rem; padding: .4rem .6rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
+#totp-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.3rem; letter-spacing: .15em; font-weight: 600; }
+.totp-bar { flex: 1; height: 4px; background: var(--bg-panel); border-radius: 2px; overflow: hidden; }
+#totp-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+.totp-live button { padding: .3rem .6rem; font-size: .85rem; }
+
+/* Trash */
+#trash-list { list-style: none; margin: .5rem 0; padding: 0; max-height: 18rem; overflow-y: auto; }
+#trash-list li { display: flex; align-items: center; gap: .5rem; padding: .45rem 0; border-bottom: 1px solid var(--border); cursor: default; }
+#trash-list li:hover { background: transparent; }
+#trash-list .entry-info { flex: 1; min-width: 0; }
+#trash-list button { padding: .3rem .6rem; font-size: .85rem; flex-shrink: 0; }
 .seed-words-head { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
 .seed-words-head label { margin: 0; }
 .word-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; margin: .5rem 0; }
