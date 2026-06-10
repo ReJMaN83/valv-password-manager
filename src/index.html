@@ -52,7 +52,8 @@
     <div class="header-row">
       <input type="search" id="search" placeholder="Sök titel, användarnamn eller URL…">
       <div class="toolbar">
-        <button id="new-entry-btn" class="primary">+ Ny post</button>
+        <button id="new-login-btn" class="primary">+ Inloggning</button>
+        <button id="new-seed-btn" class="primary">+ Seed-fras</button>
         <button id="generator-btn">Generator</button>
         <button id="settings-btn">Inställningar</button>
       </div>
@@ -87,6 +88,47 @@
       <button type="button" id="entry-delete" class="danger hidden">Ta bort</button>
       <span class="spacer"></span>
       <button type="button" id="entry-cancel">Avbryt</button>
+      <button type="submit" class="primary">Spara post</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="seed-dialog">
+  <form id="seed-form">
+    <h2 id="seed-dialog-title">Ny seed-fras</h2>
+    <label for="seed-title">Titel</label>
+    <input id="seed-title" type="text" required>
+    <label for="seed-wallet">Wallet</label>
+    <input id="seed-wallet" type="text" autocomplete="off" placeholder="t.ex. MetaMask, Ledger">
+    <div class="seed-words-head">
+      <label for="seed-count">Antal ord</label>
+      <select id="seed-count">
+        <option>12</option>
+        <option>15</option>
+        <option>18</option>
+        <option>21</option>
+        <option>24</option>
+      </select>
+      <span class="spacer"></span>
+      <button type="button" id="seed-toggle" class="hidden">Visa</button>
+    </div>
+    <p id="seed-paste-hint" class="small">Tips: klistra in hela frasen i första fältet så fylls alla ord i automatiskt.</p>
+    <div id="seed-grid" class="word-grid"></div>
+    <p id="seed-warning" class="warn small hidden"></p>
+    <label for="seed-passphrase">Passphrase (valfri, ”25:e ordet”)</label>
+    <div class="input-row">
+      <input id="seed-passphrase" type="password" autocomplete="off">
+      <button type="button" id="seed-toggle-passphrase" title="Visa eller dölj passphrasen">Visa</button>
+    </div>
+    <label for="seed-derivation">Derivation path (valfri)</label>
+    <input id="seed-derivation" type="text" autocomplete="off" placeholder="t.ex. m/44'/60'/0'/0/0">
+    <label for="seed-notes">Anteckningar</label>
+    <textarea id="seed-notes" rows="3"></textarea>
+    <div class="dialog-buttons">
+      <button type="button" id="seed-delete" class="danger hidden">Ta bort</button>
+      <button type="button" id="seed-copy">Kopiera fras</button>
+      <span class="spacer"></span>
+      <button type="button" id="seed-cancel">Avbryt</button>
       <button type="submit" class="primary">Spara post</button>
     </div>
   </form>

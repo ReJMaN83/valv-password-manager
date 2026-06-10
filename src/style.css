@@ -53,6 +53,14 @@ input, textarea {
 }
 input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type="range"] { padding: 0; accent-color: var(--accent); }
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .35rem .5rem;
+}
 textarea { resize: vertical; }
 
 label { display: block; margin: .75rem 0 .25rem; color: var(--fg-dim); font-size: .85rem; }
@@ -128,6 +136,33 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .gen-options input { width: auto; }
 #gen-output { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
 
+/* Seed-poster */
+.badge {
+  flex-shrink: 0;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--ok);
+  border: 1px solid var(--ok);
+  border-radius: 4px;
+  padding: 0 .3rem;
+}
+.seed-words-head { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+.seed-words-head label { margin: 0; }
+.word-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; margin: .5rem 0; }
+.word-cell {
+  display: flex; align-items: center; gap: .3rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .1rem .4rem;
+}
+.word-cell input { border: none; background: transparent; padding: .25rem 0; min-width: 0; }
+.word-cell input:focus { outline: none; }
+.word-cell:focus-within { border-color: var(--accent); }
+.word-cell.invalid { border-color: var(--danger); }
+.word-num { color: var(--fg-dim); font-size: .75rem; min-width: 1.2rem; text-align: right; user-select: none; }
+
 /* Toast */
 #toast {
   position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%);
@@ -142,5 +177,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   .header-row .toolbar button { flex: 1; padding: .45rem .3rem; }
   #search { flex-basis: 100%; }
   dialog { width: 94vw; padding: 1rem; }
+  .word-grid { grid-template-columns: repeat(2, 1fr); }
   .input-row button { padding: .45rem .45rem; font-size: .8rem; }
 }

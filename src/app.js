@@ -272,7 +272,7 @@ for (const eventName of ['pointermove', 'pointerdown', 'keydown', 'scroll', 'tou
 
 // ============================================================
 // Urklipp med automatisk rensning
-async function copySecret(text, what) {
+async function copySecret(text, what, message) {
   if (!text) { toast(`Inget att kopiera — fältet är tomt.`); return; }
   try {
     await navigator.clipboard.writeText(text);
@@ -282,7 +282,7 @@ async function copySecret(text, what) {
   }
   clearTimeout(state.clipboardTimer);
   state.clipboardTimer = setTimeout(clearClipboard, 30000);
-  toast(`${what} kopierat — urklipp rensas om 30 s.`);
+  toast(message || `${what} kopierat — urklipp rensas om 30 s.`);
 }
 
 async function clearClipboard() {
@@ -302,16 +302,22 @@ function renderList() {
   const list = $('entry-list');
   list.textContent = '';
   if (!state.entries) return;
+  // Sökindexet för seed-poster är titel + wallet — ALDRIG själva orden.
+  const matchesQuery = (e) => {
+    if (!query) return true;
+    const haystacks = e.type === 'seed'
+      ? [e.title, e.wallet]
+      : [e.title, e.username, e.url];
+    return haystacks.some((value) => (value || '').toLowerCase().includes(query));
+  };
   const matches = state.entries
-    .filter((e) => !query
-      || (e.title || '').toLowerCase().includes(query)
-      || (e.username || '').toLowerCase().includes(query)
-      || (e.url || '').toLowerCase().includes(query))
+    .filter(matchesQuery)
     .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'sv', { sensitivity: 'base' }));
 
   for (const entry of matches) {
     const li = document.createElement('li');
     li.tabIndex = 0;
+    const isSeed = entry.type === 'seed';
 
     const info = document.createElement('div');
     info.className = 'entry-info';
@@ -320,26 +326,36 @@ function renderList() {
     title.textContent = entry.title; // alltid textContent — aldrig innerHTML med användardata
     const sub = document.createElement('span');
     sub.className = 'entry-sub';
-    sub.textContent = entry.username || entry.url || '';
+    sub.textContent = isSeed ? (entry.wallet || '') : (entry.username || entry.url || '');
     info.append(title, sub);
 
     const actions = document.createElement('div');
     actions.className = 'entry-actions';
-    actions.append(
-      makeButton('Anv.', 'Kopiera användarnamn', (ev) => {
-        ev.stopPropagation();
-        copySecret(entry.username, 'Användarnamn');
-      }),
-      makeButton('Lösen', 'Kopiera lösenord', (ev) => {
-        ev.stopPropagation();
-        copySecret(entry.password, 'Lösenord');
-      }),
-    );
+    if (isSeed) {
+      // Medvetet inga kopieringsknappar i listan för seed-poster: hela
+      // frasen ska inte hamna i urklipp på ett felklick. Badge i stället.
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = '🌱 SEED';
+      actions.append(badge);
+    } else {
+      actions.append(
+        makeButton('Anv.', 'Kopiera användarnamn', (ev) => {
+          ev.stopPropagation();
+          copySecret(entry.username, 'Användarnamn');
+        }),
+        makeButton('Lösen', 'Kopiera lösenord', (ev) => {
+          ev.stopPropagation();
+          copySecret(entry.password, 'Lösenord');
+        }),
+      );
+    }
 
+    const open = () => (isSeed ? openSeedDialog(entry.id) : openEntryDialog(entry.id));
     li.append(info, actions);
-    li.addEventListener('click', () => openEntryDialog(entry.id));
+    li.addEventListener('click', open);
     li.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' && ev.target === li) openEntryDialog(entry.id);
+      if (ev.key === 'Enter' && ev.target === li) open();
     });
     list.append(li);
   }
@@ -347,7 +363,7 @@ function renderList() {
   const hint = $('empty-hint');
   if (matches.length === 0) {
     hint.textContent = state.entries.length === 0
-      ? 'Inga poster ännu. Klicka på ”+ Ny post”.'
+      ? 'Inga poster ännu. Klicka på ”+ Inloggning” eller ”+ Seed-fras”.'
       : 'Inga träffar på sökningen.';
     hint.classList.remove('hidden');
   } else {
@@ -386,7 +402,8 @@ function openEntryDialog(id) {
   $('entry-title').focus();
 }
 
-$('new-entry-btn').addEventListener('click', () => openEntryDialog(null));
+$('new-login-btn').addEventListener('click', () => openEntryDialog(null));
+$('new-seed-btn').addEventListener('click', () => openSeedDialog(null));
 $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 
 // Rensa fälten även när dialogen stängs med Escape, så att lösenord
@@ -440,6 +457,220 @@ $('entry-copy-username').addEventListener('click', () => {
 });
 $('entry-copy-password').addEventListener('click', () => {
   copySecret($('entry-password').value, 'Lösenord');
+});
+
+// ============================================================
+// Seed-poster
+//
+// Säkerhetsmodell för orden: när en sparad seed-post öppnas är ordfälten
+// TOMMA (value = '') med ”•••••” som placeholder och readonly — de
+// riktiga orden finns inte i DOM:en förrän användaren klickar Visa.
+// Vid Dölj töms fälten igen. Sparas posten utan att orden visats behålls
+// de redan sparade orden oförändrade.
+let seedEditingId = null;
+let seedWordsShown = false;
+
+const seedWordInputs = () => Array.from(document.querySelectorAll('#seed-grid input'));
+
+function buildSeedGrid(count, masked) {
+  const grid = $('seed-grid');
+  grid.textContent = '';
+  for (let i = 0; i < count; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'word-cell';
+    const num = document.createElement('span');
+    num.className = 'word-num';
+    num.textContent = String(i + 1); // numreringen är hela poängen — ordningen måste synas
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('autocapitalize', 'none');
+    input.setAttribute('aria-label', `Ord ${i + 1}`);
+    if (masked) {
+      input.placeholder = '•••••';
+      input.readOnly = true;
+    }
+    cell.append(num, input);
+    grid.append(cell);
+  }
+}
+
+function validateSeedWords() {
+  let unknown = 0;
+  for (const input of seedWordInputs()) {
+    const word = input.value.trim().toLowerCase();
+    const bad = word !== '' && !BIP39_SET.has(word);
+    input.parentElement.classList.toggle('invalid', bad);
+    if (bad) unknown++;
+  }
+  const warning = $('seed-warning');
+  if (unknown > 0) {
+    warning.textContent = `${unknown} ord finns inte i BIP39-ordlistan (engelska). `
+      + 'Kontrollera stavningen — du kan ändå spara (andra ordlistor/språk finns).';
+    warning.classList.remove('hidden');
+  } else {
+    warning.classList.add('hidden');
+  }
+}
+
+function openSeedDialog(id) {
+  seedEditingId = id || null;
+  const entry = id ? state.entries.find((e) => e.id === id) : null;
+  $('seed-dialog-title').textContent = entry ? 'Seed-fras' : 'Ny seed-fras';
+  $('seed-title').value = entry ? entry.title : '';
+  $('seed-wallet').value = entry ? entry.wallet || '' : '';
+  $('seed-passphrase').value = entry ? entry.passphrase || '' : '';
+  $('seed-passphrase').type = 'password';
+  $('seed-toggle-passphrase').textContent = 'Visa';
+  $('seed-derivation').value = entry ? entry.derivation || '' : '';
+  $('seed-notes').value = entry ? entry.notes || '' : '';
+  $('seed-delete').classList.toggle('hidden', !entry);
+  $('seed-warning').classList.add('hidden');
+  // ny post: skriv orden direkt; befintlig: dolda tills Visa klickas
+  seedWordsShown = !entry;
+  $('seed-toggle').classList.toggle('hidden', !entry);
+  $('seed-toggle').textContent = 'Visa';
+  $('seed-paste-hint').classList.toggle('hidden', !!entry);
+  const count = entry ? entry.words.length : 12;
+  $('seed-count').value = String(count);
+  $('seed-count').disabled = !seedWordsShown;
+  buildSeedGrid(count, !!entry);
+  $('seed-dialog').showModal();
+  $('seed-title').focus();
+}
+
+$('seed-toggle').addEventListener('click', () => {
+  const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
+  if (!entry) return;
+  if (!seedWordsShown) {
+    buildSeedGrid(entry.words.length, false);
+    seedWordInputs().forEach((input, i) => { input.value = entry.words[i] || ''; });
+    seedWordsShown = true;
+    $('seed-toggle').textContent = 'Dölj';
+    $('seed-count').value = String(entry.words.length);
+    $('seed-count').disabled = false;
+    $('seed-paste-hint').classList.remove('hidden');
+    validateSeedWords();
+  } else {
+    // Dölj: tillbaka till placeholder — ordändringar i fälten förkastas
+    buildSeedGrid(entry.words.length, true);
+    seedWordsShown = false;
+    $('seed-toggle').textContent = 'Visa';
+    $('seed-count').value = String(entry.words.length);
+    $('seed-count').disabled = true;
+    $('seed-paste-hint').classList.add('hidden');
+    $('seed-warning').classList.add('hidden');
+  }
+});
+
+$('seed-count').addEventListener('change', () => {
+  const kept = seedWordInputs().map((input) => input.value);
+  buildSeedGrid(Number($('seed-count').value), false);
+  seedWordInputs().forEach((input, i) => { input.value = kept[i] || ''; });
+  validateSeedWords();
+});
+
+$('seed-grid').addEventListener('input', (event) => {
+  if (event.target.matches('input')) validateSeedWords();
+});
+
+// Klistra in hela frasen i ett ordfält => splitta och fyll alla fält.
+$('seed-grid').addEventListener('paste', (event) => {
+  if (!event.target.matches('input') || event.target.readOnly) return;
+  const words = parseSeedPhrase((event.clipboardData || window.clipboardData).getData('text'));
+  if (words.length < 2) return; // ett ensamt ord klistras in som vanligt
+  event.preventDefault();
+  if (isValidSeedWordCount(words.length)) {
+    $('seed-count').value = String(words.length);
+    buildSeedGrid(words.length, false);
+  } else {
+    toast(`${words.length} ord är inget giltigt antal (12/15/18/21/24) — fyller i så långt det går.`);
+  }
+  seedWordInputs().forEach((input, i) => { input.value = words[i] || ''; });
+  validateSeedWords();
+});
+
+$('seed-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const title = $('seed-title').value.trim();
+  if (!title) return;
+  const existing = seedEditingId ? state.entries.find((e) => e.id === seedEditingId) : null;
+  let words;
+  if (seedWordsShown) {
+    words = seedWordInputs().map((input) => input.value.trim().toLowerCase());
+    if (words.some((word) => word === '')) {
+      const warning = $('seed-warning');
+      warning.textContent = 'Alla ordfält måste fyllas i.';
+      warning.classList.remove('hidden');
+      return;
+    }
+  } else {
+    words = existing.words; // orden visades aldrig — behåll de sparade orden
+  }
+  const now = new Date().toISOString();
+  const values = {
+    type: 'seed',
+    title,
+    wallet: $('seed-wallet').value.trim(),
+    words,
+    passphrase: $('seed-passphrase').value,
+    derivation: $('seed-derivation').value.trim(),
+    notes: $('seed-notes').value,
+  };
+  if (existing) {
+    Object.assign(existing, values, { modified: now });
+  } else {
+    state.entries.push({ id: crypto.randomUUID(), ...values, created: now, modified: now });
+  }
+  markDirty();
+  $('seed-dialog').close();
+  renderList();
+});
+
+$('seed-cancel').addEventListener('click', () => $('seed-dialog').close());
+
+// Töm allt vid stängning (även Escape) så att inga ord ligger kvar i DOM:en.
+$('seed-dialog').addEventListener('close', () => {
+  for (const id of ['seed-title', 'seed-wallet', 'seed-passphrase', 'seed-derivation', 'seed-notes']) {
+    $(id).value = '';
+  }
+  $('seed-grid').textContent = '';
+  seedEditingId = null;
+  seedWordsShown = false;
+});
+
+$('seed-delete').addEventListener('click', async () => {
+  const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
+  if (!entry) return;
+  const ok = await confirmDialog(
+    `Ta bort seed-frasen ”${entry.title}”? Utan frasen kan plånboken inte återskapas.`,
+    'Ta bort');
+  if (!ok) return;
+  state.entries = state.entries.filter((e) => e.id !== entry.id);
+  markDirty();
+  $('seed-dialog').close();
+  renderList();
+});
+
+$('seed-toggle-passphrase').addEventListener('click', () => {
+  const field = $('seed-passphrase');
+  const show = field.type === 'password';
+  field.type = show ? 'text' : 'password';
+  $('seed-toggle-passphrase').textContent = show ? 'Dölj' : 'Visa';
+});
+
+$('seed-copy').addEventListener('click', () => {
+  let words;
+  if (seedWordsShown) {
+    words = seedWordInputs().map((input) => input.value.trim().toLowerCase()).filter(Boolean);
+  } else {
+    const entry = state.entries && state.entries.find((e) => e.id === seedEditingId);
+    words = entry ? entry.words : [];
+  }
+  if (!words.length) { toast('Inga ord att kopiera.'); return; }
+  copySecret(words.join(' '), 'Seed-fras',
+    'Seed-fras i urklipp — rensas om 30 s. Klistra aldrig in på webbsidor.');
 });
 
 // ============================================================
@@ -637,10 +868,15 @@ $('cp-submit').addEventListener('click', async () => {
 });
 
 $('export-btn').addEventListener('click', async () => {
-  const ok = await confirmDialog(
-    'Exporten är HELT OKRYPTERAD — alla lösenord hamnar i klartext i filen. '
-    + 'Spara den bara på en säker plats och radera den så fort du är klar. Fortsätt?',
-    'Exportera okrypterat');
+  const hasSeeds = state.entries.some((e) => e.type === 'seed');
+  const message = hasSeeds
+    ? 'VARNING: valvet innehåller SEED-FRASER. Exporten är HELT OKRYPTERAD — '
+      + 'den som kommer över filen kan tömma dina plånböcker, och en seed-fras '
+      + 'kan inte bytas som ett lösenord. Spara aldrig filen i molnet, och '
+      + 'radera den säkert direkt efter användning. Fortsätt ändå?'
+    : 'Exporten är HELT OKRYPTERAD — alla lösenord hamnar i klartext i filen. '
+      + 'Spara den bara på en säker plats och radera den så fort du är klar. Fortsätt?';
+  const ok = await confirmDialog(message, 'Exportera okrypterat');
   if (!ok) return;
   const json = JSON.stringify(
     { entries: state.entries, meta: { exported: new Date().toISOString() } },
