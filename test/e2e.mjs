@@ -15,21 +15,37 @@ import { homedir } from 'node:os';
 import { copyFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+// In CI, REQUIRE_E2E=1 turns a missing browser into a failure instead of a skip.
+const skip = (reason) => {
+  if (process.env.REQUIRE_E2E) {
+    console.error('e2e: REQUIRED but cannot run —', reason);
+    process.exit(1);
+  }
+  console.log('e2e: skipped —', reason);
+  process.exit(0);
+};
+
 let chromium;
 try {
   ({ chromium } = await import('playwright-core'));
 } catch {
-  console.log('e2e: hoppas över — playwright-core är inte installerat.');
-  process.exit(0);
+  skip('playwright-core is not installed');
 }
 
 function findChromium() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+  // Preferred: the browser revision registered for this playwright-core
+  // version (what `npx playwright-core install chromium` provides).
+  try {
+    const exe = chromium.executablePath();
+    readFileSync(exe, { length: 1 });
+    return exe;
+  } catch { /* fall through to a cache scan */ }
   const cache = path.join(homedir(), '.cache/ms-playwright');
   for (const dir of readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse()) {
     for (const sub of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
       const exe = path.join(cache, dir, sub);
-      try { readFileSync(exe, { length: 1 }); return exe; } catch { /* prova nästa */ }
+      try { readFileSync(exe, { length: 1 }); return exe; } catch { /* try the next one */ }
     }
   }
   return null;
@@ -37,8 +53,7 @@ function findChromium() {
 
 const EXE = findChromium();
 if (!EXE) {
-  console.log('e2e: hoppas över — ingen Playwright-Chromium hittades (sätt CHROMIUM_PATH).');
-  process.exit(0);
+  skip('no Playwright Chromium found (set CHROMIUM_PATH or run: npx playwright-core install chromium)');
 }
 
 const DIST = new URL('../dist/valv.html', import.meta.url).pathname;
