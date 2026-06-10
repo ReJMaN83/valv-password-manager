@@ -1,16 +1,19 @@
-// test/e2e.mjs — frivillig E2E-verifiering av round-trip-invarianten
-// i riktig Chromium. Kräver playwright-core (ingår INTE i repots
-// beroenden) samt en nedladdad Playwright-Chromium:
+// test/e2e.mjs — end-to-end verification of the round-trip invariant in a
+// real Chromium. Requires playwright-core (devDependency) plus a downloaded
+// Playwright Chromium:
 //
-//   npm i --no-save playwright-core   (eller kör från en miljö som har den)
+//   npm ci && npx playwright-core install chromium
 //   node build.mjs && node test/e2e.mjs
 //
-// Flöde: generation 1 = dist/valv.html (first-run) -> skapa valv, lägg
-// till post, spara -> generation 2. Öppna gen 2, lås upp, verifiera,
-// ändra, spara -> generation 3. Öppna gen 3 och verifiera allt igen.
+// Flow: generation 1 = dist/valv.html (first run) -> create vault, add an
+// entry, save -> generation 2. Open gen 2, unlock, verify, change, save ->
+// generation 3. Open gen 3 and verify everything again. Then: export ->
+// import into a fresh shell, upgrade-from-file into a fresh shell, and the
+// i18n language round-trip.
 //
-// OBS: i headless avvisar showSaveFilePicker med AbortError (= "avbrutet"),
-// därför tas API:t bort i testet så att nedladdnings-fallbacken används.
+// NOTE: in headless mode showSaveFilePicker rejects with AbortError (which
+// the app correctly treats as "user cancelled"), so the test removes the
+// API to exercise the download fallback instead.
 import { homedir } from 'node:os';
 import { copyFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -57,6 +60,7 @@ if (!EXE) {
 }
 
 const DIST = new URL('../dist/valv.html', import.meta.url).pathname;
+// Deliberately non-ASCII: passwords must survive åäö and similar.
 const PW = 'testlösenord-åäö-123!';
 const tmp = mkdtempSync('/tmp/valv-rt-');
 
@@ -76,70 +80,72 @@ async function saveAndCapture(page, file) {
   await (await dl).saveAs(file);
 }
 
-// ---- Generation 1: first-run, skapa valv, lägg till post, spara
+// ---- Generation 1: first run, create vault, add an entry, save
 const gen1 = path.join(tmp, 'gen1.html');
 copyFileSync(DIST, gen1);
 let page = await ctx.newPage();
 await page.goto('file://' + gen1);
-check('gen1: first-run-läget visas', await page.isVisible('#create-form'));
+check('gen1: first-run mode is shown', await page.isVisible('#create-form'));
 await page.fill('#create-password', PW);
 await page.fill('#create-password2', PW);
 await page.click('#create-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('gen1: huvudvyn visas efter skapande', true);
-check('gen1: osparat-indikatorn visas', await page.isVisible('#dirty-indicator'));
+check('gen1: main view appears after creation', true);
+check('gen1: unsaved indicator is shown', await page.isVisible('#dirty-indicator'));
 
 await page.click('#new-login-btn');
-await page.fill('#entry-title', 'Banken <script>alert(1)</script>');
-await page.fill('#entry-username', 'daniel');
-await page.fill('#entry-password', 'hemligt!');
-await page.fill('#entry-url', 'https://banken.se');
+await page.fill('#entry-title', 'Bank <script>alert(1)</script>');
+await page.fill('#entry-username', 'alice');
+await page.fill('#entry-password', 'secret-1!');
+await page.fill('#entry-url', 'https://bank.example');
 await page.click('#entry-form button[type=submit]');
-check('gen1: posten visas i listan (XSS-säkert via textContent)',
-  (await page.textContent('.entry-title')) === 'Banken <script>alert(1)</script>');
+check('gen1: entry renders in the list (XSS-safe via textContent)',
+  (await page.textContent('.entry-title')) === 'Bank <script>alert(1)</script>');
 
 const gen2 = path.join(tmp, 'gen2.html');
 await saveAndCapture(page, gen2);
-check('gen1: spara gav en nedladdad fil', true);
+check('gen1: saving produced a downloaded file', true);
 await page.close();
 
-// ---- Generation 2: öppna den SPARADE filen — viktigaste invarianten
+// ---- Generation 2: open the SAVED file — the core invariant
 page = await ctx.newPage();
 await page.goto('file://' + gen2);
-check('gen2: upplåsningsläget visas (inte first-run)', await page.isVisible('#unlock-form'));
+check('gen2: unlock mode is shown (not first run)', await page.isVisible('#unlock-form'));
 
-await page.fill('#unlock-password', 'fel-lösenord');
+await page.fill('#unlock-password', 'wrong-password');
 await page.click('#unlock-btn');
 await page.waitForSelector('#unlock-error', { state: 'visible' });
-check('gen2: fel lösenord ger felmeddelande', true);
+check('gen2: wrong password shows an error', true);
 
 await page.fill('#unlock-password', PW);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('gen2: rätt lösenord låser upp', true);
-check('gen2: posten överlevde round-trip',
-  (await page.textContent('.entry-title')) === 'Banken <script>alert(1)</script>');
-check('gen2: ingen osparat-indikator efter ren upplåsning', !(await page.isVisible('#dirty-indicator')));
+check('gen2: the right password unlocks', true);
+check('gen2: the entry survived the round-trip',
+  (await page.textContent('.entry-title')) === 'Bank <script>alert(1)</script>');
+check('gen2: no unsaved indicator after a clean unlock', !(await page.isVisible('#dirty-indicator')));
 
 const gen2src = readFileSync(gen2, 'utf8');
-check('gen2: inga klartextlösenord i filen', !gen2src.includes('hemligt!') && !gen2src.includes('Banken <script>'));
-check('gen2: ingen extern referens i filen', !/(?:src|href)\s*=\s*["']https?:/i.test(gen2src));
+check('gen2: no plaintext passwords in the file',
+  !gen2src.includes('secret-1!') && !gen2src.includes('Bank <script>'));
+check('gen2: no external references in the file', !/(?:src|href)\s*=\s*["']https?:/i.test(gen2src));
 
 await page.click('#new-login-btn');
-await page.fill('#entry-title', 'E-post');
-await page.fill('#entry-username', 'daniel.sahlin');
-await page.fill('#entry-password', 'annat-lösenord');
+await page.fill('#entry-title', 'Email');
+await page.fill('#entry-username', 'alice.smith');
+await page.fill('#entry-password', 'other-password');
 await page.click('#entry-form button[type=submit]');
-check('gen2: osparat-indikatorn visas efter ändring', await page.isVisible('#dirty-indicator'));
+check('gen2: unsaved indicator appears after a change', await page.isVisible('#dirty-indicator'));
 
-await page.fill('#search', 'banken');
-check('gen2: sökningen filtrerar', (await page.locator('#entry-list li').count()) === 1);
+await page.fill('#search', 'bank');
+check('gen2: search filters the list', (await page.locator('#entry-list li').count()) === 1);
 await page.fill('#search', '');
 
-// ---- Seed-post: skapa via inklistring av hel fras
-// OBS: frasen är medvetet INTE i alfabetisk ordning — BIP39-listan ligger
-// inlinad (alfabetiskt) i appkoden, så en alfabetisk fras vore en substring
-// av filen och klartextkontrollerna nedan skulle bli meningslösa.
+// ---- Seed entry: create by pasting a whole phrase
+// NOTE: the phrase is deliberately NOT in alphabetical order — the BIP39
+// list is inlined (alphabetically) in the app code, so an alphabetical
+// phrase would be a substring of the file and the plaintext checks below
+// would be meaningless.
 const PHRASE = 'zoo wine vivid urge tape sugar response oxygen muscle legend item glove';
 const SEED_WORDS = PHRASE.split(' ');
 await page.click('#new-seed-btn');
@@ -150,28 +156,28 @@ await page.evaluate((phrase) => {
   const dt = new DataTransfer();
   dt.setData('text/plain', phrase);
   input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-}, PHRASE.toUpperCase()); // versaler: testar trim + lowercase
+}, PHRASE.toUpperCase()); // uppercase: exercises trim + lowercase
 const pasted = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
-check('gen2: inklistrad fras splittas till 12 gemena ord', pasted.join(' ') === PHRASE);
-check('gen2: inga BIP39-varningar för giltiga ord', !(await page.isVisible('#seed-warning')));
+check('gen2: pasted phrase splits into 12 lowercase words', pasted.join(' ') === PHRASE);
+check('gen2: no BIP39 warnings for valid words', !(await page.isVisible('#seed-warning')));
 await page.click('#seed-form button[type=submit]');
-check('gen2: seed-posten har badge i listan', (await page.textContent('.badge')).includes('SEED'));
+check('gen2: the seed entry has a badge in the list', (await page.textContent('.badge')).includes('SEED'));
 
-// sök träffar wallet — men aldrig orden
+// search matches the wallet — but never the words
 await page.fill('#search', 'nano');
-check('gen2: sök träffar wallet för seed-post', (await page.locator('#entry-list li').count()) === 1);
+check('gen2: search matches the wallet of a seed entry', (await page.locator('#entry-list li').count()) === 1);
 await page.fill('#search', 'zoo');
-check('gen2: sök träffar ALDRIG seed-orden', (await page.locator('#entry-list li').count()) === 0);
+check('gen2: search NEVER matches the seed words', (await page.locator('#entry-list li').count()) === 0);
 await page.fill('#search', '');
 
 const gen3 = path.join(tmp, 'gen3.html');
 await saveAndCapture(page, gen3);
 await page.close();
 
-// ---- Generation 3: andra round-trip-varvet
+// ---- Generation 3: second round-trip pass
 const gen3src = readFileSync(gen3, 'utf8');
-check('gen3: seed-frasen och wallet finns inte i klartext i den sparade filen',
+check('gen3: the seed phrase and wallet are not in the saved file in plaintext',
   !gen3src.includes(PHRASE) && !gen3src.includes('zoo wine') && !gen3src.includes('Ledger Nano X'));
 
 page = await ctx.newPage();
@@ -179,18 +185,18 @@ await page.goto('file://' + gen3);
 await page.fill('#unlock-password', PW);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('gen3: alla tre posterna finns efter andra varvet',
+check('gen3: all three entries exist after the second pass',
   (await page.locator('#entry-list li').count()) === 3);
 const titles = await page.locator('.entry-title').allTextContents();
-check('gen3: sorterad A–Ö', titles[0] === 'Banken <script>alert(1)</script>'
-  && titles[1] === 'E-post' && titles[2] === 'Ledger');
+check('gen3: sorted alphabetically', titles[0] === 'Bank <script>alert(1)</script>'
+  && titles[1] === 'Email' && titles[2] === 'Ledger');
 
-// ---- Seed-post efter round-trip: dold som default, Visa ger rätt ordning
+// ---- Seed entry after round-trip: masked by default, Show gives the right order
 await page.click('#entry-list li:has(.badge)');
 await page.waitForSelector('#seed-dialog[open]');
 const masked = await page.evaluate((words) => {
   const inputs = Array.from(document.querySelectorAll('#seed-grid input'));
-  // dialogens textContent innehåller inga script — body:s gör det (BIP39-listan)
+  // the dialog's textContent contains no scripts — body's does (the BIP39 list)
   const dialogText = document.querySelector('#seed-dialog').textContent;
   return {
     count: inputs.length,
@@ -200,67 +206,67 @@ const masked = await page.evaluate((words) => {
       || words.some((w) => dialogText.includes(w)),
   };
 }, SEED_WORDS);
-check('gen3: 12 numrerade fält, dolda som default (placeholder, tomma värden)',
+check('gen3: 12 numbered fields, masked by default (placeholders, empty values)',
   masked.count === 12 && masked.allEmpty);
-check('gen3: orden finns INTE i DOM:en före Visa', !masked.inDom);
-check('gen3: wallet-fältet följde med', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
+check('gen3: the words are NOT in the DOM before Show', !masked.inDom);
+check('gen3: the wallet field came along', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
 
 await page.click('#seed-toggle');
 const shown = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
-check('gen3: Visa ger alla 12 ord i rätt ordning', shown.join(' ') === PHRASE);
+check('gen3: Show reveals all 12 words in the right order', shown.join(' ') === PHRASE);
 const nums = await page.locator('#seed-grid .word-num').allTextContents();
-check('gen3: numreringen är 1–12 i ordning', nums.join(',') === '1,2,3,4,5,6,7,8,9,10,11,12');
+check('gen3: numbering runs 1–12 in order', nums.join(',') === '1,2,3,4,5,6,7,8,9,10,11,12');
 await page.click('#seed-toggle');
 const remasked = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).every((i) => i.value === ''));
-check('gen3: Dölj tömmer fälten igen', remasked);
+check('gen3: Hide empties the fields again', remasked);
 await page.click('#seed-cancel');
 
-// ---- Export (underlag för import-testet): 3 poster i detta läge
+// ---- Export (input for the import test): 3 entries at this point
 await page.click('#settings-btn');
 await page.waitForSelector('#settings-dialog[open]');
 await page.click('#export-btn');
 await page.waitForSelector('#confirm-dialog[open]');
-check('gen3: exportvarningen nämner seed-fraser',
+check('gen3: the export warning mentions seed phrases',
   (await page.textContent('#confirm-message')).includes('SEED PHRASES'));
 const exportDl = page.waitForEvent('download');
 await page.click('#confirm-ok');
 const exportFile = path.join(tmp, 'valv-export.json');
 await (await exportDl).saveAs(exportFile);
 const exported = JSON.parse(readFileSync(exportFile, 'utf8'));
-check('gen3: exporten innehåller 3 poster med intakta seed-ord',
+check('gen3: the export holds 3 entries with intact seed words',
   exported.entries.length === 3
   && exported.entries.find((e) => e.type === 'seed').words.join(' ') === PHRASE);
 await page.click('#settings-close');
 
-// lås/upplås i samma session med osparad ändring
+// ---- Lock/unlock within the same session with an unsaved change
 await page.click('#new-login-btn');
 await page.fill('#entry-title', 'Wifi');
 await page.fill('#entry-password', 'wifi-pw');
 await page.click('#entry-form button[type=submit]');
 await page.click('#lock-btn');
 await page.waitForSelector('#unlock-form', { state: 'visible' });
-check('gen3: lås visar låsskärmen', true);
-check('gen3: listan är tömd vid lås', (await page.locator('#entry-list li').count()) === 0);
+check('gen3: locking shows the lock screen', true);
+check('gen3: the list is cleared on lock', (await page.locator('#entry-list li').count()) === 0);
 await page.fill('#unlock-password', PW);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('gen3: osparad ändring överlevde lås/upplås (krypterat i DOM)',
+check('gen3: the unsaved change survived lock/unlock (encrypted in the DOM)',
   (await page.locator('#entry-list li').count()) === 4);
-check('gen3: osparat-indikatorn kvar efter lås/upplås', await page.isVisible('#dirty-indicator'));
+check('gen3: the unsaved indicator persists across lock/unlock', await page.isVisible('#dirty-indicator'));
 
-// generator
+// ---- Generator
 await page.click('#generator-btn');
 const generated = await page.inputValue('#gen-output');
-check('gen3: generatorn ger 20 tecken', generated.length === 20);
+check('gen3: the generator produces 20 characters', generated.length === 20);
 await page.click('#gen-regenerate');
 const generated2 = await page.inputValue('#gen-output');
-check('gen3: nytt lösenord vid omgenerering', generated2 !== generated && generated2.length === 20);
+check('gen3: regenerating gives a new password', generated2 !== generated && generated2.length === 20);
 await page.click('#gen-close');
 await page.close();
 
-// Hjälpare: skapa ett nytt tomt appskal och lås upp det med ett nytt lösenord
+// Helper: create a fresh empty app shell and unlock it with a new password
 const PW2 = 'nytt-skal-lösenord-9!';
 async function freshShell(file) {
   copyFileSync(DIST, file);
@@ -273,7 +279,7 @@ async function freshShell(file) {
   return p;
 }
 
-// ---- Lösning A: importera JSON-exporten i ett nytt tomt skal
+// ---- Solution A: import the JSON export into a fresh empty shell
 page = await freshShell(path.join(tmp, 'shell-a.html'));
 await page.click('#settings-btn');
 const [chooserA] = await Promise.all([
@@ -282,99 +288,100 @@ const [chooserA] = await Promise.all([
 ]);
 await chooserA.setFiles(exportFile);
 await page.waitForSelector('#merge-dialog[open]');
-check('import: merge-dialogen visar antal poster',
+check('import: the merge dialog shows the entry count',
   (await page.textContent('#merge-message')).includes('3 entries'));
 await page.click('#merge-merge');
-// dialogens close-händelse kommer före renderList — vänta på listan, inte dialogen
+// the dialog's close event fires before renderList — wait for the list, not the dialog
 await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
-check('import: alla 3 poster togs in', true);
+check('import: all 3 entries were brought in', true);
 const importedTitles = await page.locator('.entry-title').allTextContents();
-check('import: titlarna är identiska', importedTitles.join('|') === 'Banken <script>alert(1)</script>|E-post|Ledger');
+check('import: titles are identical',
+  importedTitles.join('|') === 'Bank <script>alert(1)</script>|Email|Ledger');
 await page.click('#entry-list li:has(.badge)');
 await page.waitForSelector('#seed-dialog[open]');
 await page.click('#seed-toggle');
 const importedWords = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
-check('import: seed-orden identiska i rätt ordning', importedWords.join(' ') === PHRASE);
-check('import: wallet identisk', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
+check('import: seed words identical and in order', importedWords.join(' ') === PHRASE);
+check('import: wallet identical', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
 await page.click('#seed-cancel');
-await page.click('#entry-list li:nth-child(2)'); // E-post
+await page.click('#entry-list li:nth-child(2)'); // Email
 await page.waitForSelector('#entry-dialog[open]');
-check('import: login-lösenordet identiskt', (await page.inputValue('#entry-password')) === 'annat-lösenord');
+check('import: login password identical', (await page.inputValue('#entry-password')) === 'other-password');
 await page.click('#entry-cancel');
 await page.close();
 
-// ---- Lösning B: uppgradera från gammal valvfil i ett nytt tomt skal
+// ---- Solution B: upgrade from an old vault file into a fresh empty shell
 page = await freshShell(path.join(tmp, 'shell-b.html'));
 await page.click('#settings-btn');
 const [chooserB] = await Promise.all([
   page.waitForEvent('filechooser'),
   page.click('#upgrade-btn'),
 ]);
-await chooserB.setFiles(gen3); // gammal fil, krypterad med PW (inte PW2)
+await chooserB.setFiles(gen3); // old file, encrypted with PW (not PW2)
 await page.waitForSelector('#upgrade-dialog[open]');
-check('uppgradera: dialogen visar filnamnet',
+check('upgrade: the dialog shows the file name',
   (await page.textContent('#upgrade-filename')).includes('gen3.html'));
 
-await page.fill('#upgrade-password', 'fel-lösenord');
+await page.fill('#upgrade-password', 'wrong-password');
 await page.click('#upgrade-unlock');
 await page.waitForSelector('#upgrade-error', { state: 'visible' });
-check('uppgradera: fel lösenord ger fel med ny chans', true);
+check('upgrade: wrong password shows an error with another chance', true);
 
 await page.fill('#upgrade-password', PW);
 await page.click('#upgrade-unlock');
 await page.waitForSelector('#merge-dialog[open]');
-check('uppgradera: merge-dialogen visar antal poster',
+check('upgrade: the merge dialog shows the entry count',
   (await page.textContent('#merge-message')).includes('3 entries'));
 await page.click('#merge-merge');
 await page.waitForFunction(() => document.querySelectorAll('#entry-list li').length === 3);
-check('uppgradera: alla 3 poster togs in', true);
+check('upgrade: all 3 entries were brought in', true);
 
-// round-trip: spara det uppgraderade valvet och öppna den sparade filen
+// round-trip: save the upgraded vault and open the saved file
 const genB = path.join(tmp, 'gen-b.html');
 await saveAndCapture(page, genB);
 await page.close();
 
 page = await ctx.newPage();
 await page.goto('file://' + genB);
-await page.fill('#unlock-password', PW2); // det NYA skalets lösenord
+await page.fill('#unlock-password', PW2); // the NEW shell's password
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('uppgradera: round-trip — sparad fil öppnas med nya lösenordet och 3 poster',
+check('upgrade: round-trip — the saved file opens with the new password and 3 entries',
   (await page.locator('#entry-list li').count()) === 3);
 await page.click('#entry-list li:has(.badge)');
 await page.waitForSelector('#seed-dialog[open]');
 await page.click('#seed-toggle');
 const upgradedWords = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
-check('uppgradera: seed-orden överlevde uppgradering + round-trip', upgradedWords.join(' ') === PHRASE);
+check('upgrade: the seed words survived upgrade + round-trip', upgradedWords.join(' ') === PHRASE);
 await page.click('#seed-cancel');
 await page.close();
 
-// ---- i18n: engelska som default, byt till svenska, språket överlever round-trip
+// ---- i18n: English by default, switch to Swedish, language survives round-trip
 const i18nShell = path.join(tmp, 'shell-i18n.html');
 copyFileSync(DIST, i18nShell);
 page = await ctx.newPage();
 await page.goto('file://' + i18nShell);
-check('i18n: låsskärmen är på engelska som default',
+check('i18n: the lock screen defaults to English',
   (await page.textContent('#create-btn')) === 'Create vault'
   && (await page.textContent('.tagline')) === 'Encrypted password manager in a single file');
 await page.fill('#create-password', PW2);
 await page.fill('#create-password2', PW2);
 await page.click('#create-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('i18n: huvudvyn är på engelska som default',
+check('i18n: the main view defaults to English',
   (await page.textContent('#settings-btn')) === 'Settings'
   && (await page.textContent('#new-login-btn')) === '+ Login');
 
 await page.click('#new-login-btn');
-await page.fill('#entry-title', 'Språktest');
+await page.fill('#entry-title', 'Language test');
 await page.fill('#entry-password', 'pw-i18n');
 await page.click('#entry-form button[type=submit]');
 
 await page.click('#settings-btn');
 await page.selectOption('#language-select', 'sv');
-check('i18n: bytet till svenska slår igenom direkt',
+check('i18n: switching to Swedish takes effect immediately',
   (await page.textContent('#settings-btn')) === 'Inställningar'
   && (await page.textContent('#save-btn')) === 'Spara'
   && (await page.textContent('#dirty-indicator')) === '● osparat');
@@ -384,22 +391,22 @@ const genI18n = path.join(tmp, 'gen-i18n.html');
 await saveAndCapture(page, genI18n);
 await page.close();
 
-// Round-trip-invarianten: den sparade filen visar svenska redan FÖRE upplåsning
+// The round-trip invariant: the saved file shows Swedish BEFORE unlock
 page = await ctx.newPage();
 await page.goto('file://' + genI18n);
-check('i18n: sparad fil visar svenska på låsskärmen före upplåsning',
+check('i18n: the saved file shows Swedish on the lock screen before unlock',
   (await page.textContent('#unlock-btn')) === 'Lås upp'
   && (await page.textContent('label[for=unlock-password]')) === 'Master-lösenord');
-check('i18n: html-lang sätts till sv', await page.evaluate(() => document.documentElement.lang) === 'sv');
+check('i18n: html lang is set to sv', await page.evaluate(() => document.documentElement.lang) === 'sv');
 await page.fill('#unlock-password', PW2);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('i18n: huvudvyn på svenska efter upplåsning av sparad fil',
+check('i18n: the main view is Swedish after unlocking the saved file',
   (await page.textContent('#new-login-btn')) === '+ Inloggning');
-check('i18n: posten överlevde språkbyte + round-trip',
-  (await page.textContent('.entry-title')) === 'Språktest');
+check('i18n: the entry survived language switch + round-trip',
+  (await page.textContent('.entry-title')) === 'Language test');
 
 await page.close();
 await browser.close();
-console.log(failed ? `\n${failed} E2E-KONTROLLER MISSLYCKADES` : '\nAlla E2E-kontroller gick igenom');
+console.log(failed ? `\n${failed} E2E CHECK(S) FAILED` : '\nAll E2E checks passed');
 process.exit(failed ? 1 : 0);

@@ -1,14 +1,14 @@
-// seed.js — Valv seed-frasmodul
+// seed.js — Valv seed phrase module
 //
-// Ren logik utan DOM-beroenden, så att den (precis som crypto.js) kan
-// köras både i webbläsaren och i Node-testerna. Export-raden längst ned
-// strippas av build.mjs.
+// Pure logic with no DOM dependencies, so that (like crypto.js) it runs in
+// both the browser and the Node test suite. The export line at the bottom
+// is stripped by build.mjs.
 //
-// BIP39-ordlistan nedan är den officiella engelska listan (2048 ord,
-// public domain) från bitcoin/bips, bip-0039/english.txt med SHA256
+// The BIP39 word list below is the official English list (2048 words,
+// public domain) from bitcoin/bips, bip-0039/english.txt with SHA256
 // 2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda.
-// Den används ENDAST för varningar vid inmatning — okända ord blockerar
-// inte sparande (andra ordlistor/språk förekommer).
+// It is used ONLY for input warnings — unknown words never block saving
+// (other word lists and languages exist).
 'use strict';
 
 const BIP39_WORDS =
@@ -186,23 +186,23 @@ const BIP39_WORDS =
 
 const BIP39_SET = new Set(BIP39_WORDS.split(' '));
 
-// Giltiga antal ord i en BIP39-fras.
+// Valid word counts for a BIP39 phrase.
 const SEED_WORD_COUNTS = [12, 15, 18, 21, 24];
 
 const isValidSeedWordCount = (n) => SEED_WORD_COUNTS.includes(n);
 
-// Normalisera inklistrad frastext: trim, gemener, splitta på whitespace.
+// Normalize pasted phrase text: trim, lowercase, split on whitespace.
 function parseSeedPhrase(text) {
   return String(text).trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-// Returnerar de ord som inte finns i BIP39-ordlistan (tomma fält ignoreras).
+// Returns the words that are not in the BIP39 list (empty fields ignored).
 function unknownSeedWords(words) {
   return words.filter((word) => word !== '' && !BIP39_SET.has(word));
 }
 
-// Bakåtkompatibilitet: poster från valv skapade före seed-stödet saknar
-// type-fältet och ska tolkas som inloggningar — utan att några fält tappas.
+// Backward compatibility: entries from vaults created before seed support
+// lack the type field and are treated as logins — without losing any fields.
 function normalizeEntry(entry) {
   return entry.type ? entry : { ...entry, type: 'login' };
 }

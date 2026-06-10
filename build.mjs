@@ -1,5 +1,5 @@
-// build.mjs — inlinar src/ till en enda fristående fil: dist/valv.html
-// Inga npm-beroenden. Kör: node build.mjs
+// build.mjs — inlines src/ into a single self-contained file: dist/valv.html
+// No npm dependencies. Run: node build.mjs
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -7,10 +7,10 @@ import path from 'node:path';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const src = (file) => readFile(path.join(root, 'src', file), 'utf8');
 
-// CSP injiceras vid bygget i stället för att ligga i src/index.html —
-// under utveckling refererar index.html externa filer (style.css, *.js)
-// som en strikt CSP skulle blockera. Den färdiga filen är helt inline
-// och får därför den hårdaste policy som fungerar för en inline-app.
+// The CSP is injected at build time instead of living in src/index.html —
+// during development index.html references external files (style.css, *.js)
+// that a strict CSP would block. The finished file is fully inline and
+// therefore gets the hardest policy that works for an inline app.
 const CSP =
   '<meta http-equiv="Content-Security-Policy" content="' +
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
@@ -19,8 +19,9 @@ const CSP =
 
 let html = await src('index.html');
 const css = await src('style.css');
-// export-raden i crypto.js behövs bara när modulen importeras som ESM
-// i Node-testerna; i webbläsaren blir funktionerna vanliga globaler.
+// The export line in the dual-environment modules is only needed when they
+// are imported as ES modules by the Node tests; in the browser their
+// declarations become plain globals.
 const stripExport = (code) => code.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '');
 const cryptoJs = stripExport(await src('crypto.js'));
 const i18nJs = stripExport(await src('i18n.js'));
@@ -28,8 +29,9 @@ const seedJs = stripExport(await src('seed.js'));
 const appJs = await src('app.js');
 
 const replaceOnce = (haystack, needle, replacement) => {
-  if (!haystack.includes(needle)) throw new Error(`build: hittar inte "${needle}" i index.html`);
-  // replacer-funktion så att $-tecken i innehållet inte tolkas som referenser
+  if (!haystack.includes(needle)) throw new Error(`build: cannot find "${needle}" in index.html`);
+  // Replacer function so $ characters in the content are not interpreted
+  // as special replacement patterns.
   return haystack.replace(needle, () => replacement);
 };
 
@@ -40,18 +42,18 @@ html = replaceOnce(html, '<script src="seed.js"></script>', `<script>\n${seedJs}
 html = replaceOnce(html, '<script src="app.js"></script>', `<script>\n${appJs}</script>`);
 html = replaceOnce(html, '<!--BUILD:CSP-->', CSP);
 
-// Validering: den färdiga filen får inte ha några externa referenser.
+// Validation: the finished file must not contain any external references.
 const problems = [];
-if (/(?:src|href)\s*=\s*["']?https?:/i.test(html)) problems.push('extern http(s)-referens');
-if (/<script[^>]*\ssrc\s*=/i.test(html)) problems.push('script-tagg med src kvar');
-if (/<link(?![^>]*href="data:)[^>]*>/i.test(html)) problems.push('link-tagg med extern href kvar');
-if (/^export\s/m.test(html)) problems.push('export-sats kvar i inlinead JS');
+if (/(?:src|href)\s*=\s*["']?https?:/i.test(html)) problems.push('external http(s) reference');
+if (/<script[^>]*\ssrc\s*=/i.test(html)) problems.push('script tag with src remains');
+if (/<link(?![^>]*href="data:)[^>]*>/i.test(html)) problems.push('link tag with external href remains');
+if (/^export\s/m.test(html)) problems.push('export statement remains in inlined JS');
 if (problems.length) {
-  console.error('Bygget underkänt:', problems.join(', '));
+  console.error('Build rejected:', problems.join(', '));
   process.exit(1);
 }
 
 await mkdir(path.join(root, 'dist'), { recursive: true });
 const outFile = path.join(root, 'dist', 'valv.html');
 await writeFile(outFile, html);
-console.log(`Skrev ${outFile} (${(Buffer.byteLength(html) / 1024).toFixed(1)} kB)`);
+console.log(`Wrote ${outFile} (${(Buffer.byteLength(html) / 1024).toFixed(1)} kB)`);

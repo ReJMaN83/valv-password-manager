@@ -1,5 +1,5 @@
-// test/roundtrip.mjs — tester för kryptomodulen och spara-simulering.
-// Kör: node test/roundtrip.mjs   (kör node build.mjs först för dist-testet)
+// test/roundtrip.mjs — tests for the crypto module, the file format and i18n.
+// Run: node test/roundtrip.mjs   (run node build.mjs first for the dist test)
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
@@ -13,8 +13,8 @@ import {
 } from '../src/seed.js';
 import { STRINGS } from '../src/i18n.js';
 
-// Lågt iterationsantal i de tester som inte handlar om deriveringen i sig,
-// så att sviten är snabb. Ett test kör fullt antal (600 000).
+// A low iteration count keeps the tests that are not about key derivation
+// itself fast. One test runs the full default count (600 000).
 const FAST_ITER = 1000;
 
 const tests = [];
@@ -26,103 +26,103 @@ test('base64 round-trip', () => {
   assert.equal(toBase64(new Uint8Array(0)), '');
 });
 
-test('encrypt/decrypt round-trip med fullt iterationsantal (600 000)', async () => {
-  const plaintext = '{"entries":[{"title":"Bank","password":"hemligt åäö 🔐"}]}';
-  const blob = await encryptVault('korrekt häst batteri häftstift', plaintext);
+test('encrypt/decrypt round-trip at the full iteration count (600 000)', async () => {
+  const plaintext = '{"entries":[{"title":"Bank","password":"secret åäö 🔐"}]}';
+  const blob = await encryptVault('correct horse battery staple', plaintext);
   assert.equal(blob.version, 1);
   assert.equal(blob.kdf, 'PBKDF2-SHA256');
   assert.equal(blob.iterations, KDF_ITERATIONS_DEFAULT);
   assert.equal(fromBase64(blob.salt).length, SALT_BYTES);
   assert.equal(fromBase64(blob.nonce).length, NONCE_BYTES);
-  assert.equal(await decryptVault('korrekt häst batteri häftstift', blob), plaintext);
+  assert.equal(await decryptVault('correct horse battery staple', blob), plaintext);
 });
 
-test('fel lösenord kastar', async () => {
-  const blob = await encryptVault('rätt lösenord', 'data', FAST_ITER);
-  await assert.rejects(decryptVault('fel lösenord', blob));
+test('wrong password throws', async () => {
+  const blob = await encryptVault('right password', 'data', FAST_ITER);
+  await assert.rejects(decryptVault('wrong password', blob));
 });
 
-test('manipulerad ciphertext kastar (GCM-taggen validerar)', async () => {
-  const blob = await encryptVault('lösenord', 'data', FAST_ITER);
+test('tampered ciphertext throws (the GCM tag validates)', async () => {
+  const blob = await encryptVault('password', 'data', FAST_ITER);
   const bytes = fromBase64(blob.ciphertext);
   bytes[0] ^= 0xff;
   const tampered = { ...blob, ciphertext: toBase64(bytes) };
-  await assert.rejects(decryptVault('lösenord', tampered));
+  await assert.rejects(decryptVault('password', tampered));
 });
 
-test('manipulerad nonce kastar', async () => {
-  const blob = await encryptVault('lösenord', 'data', FAST_ITER);
+test('tampered nonce throws', async () => {
+  const blob = await encryptVault('password', 'data', FAST_ITER);
   const bytes = fromBase64(blob.nonce);
   bytes[0] ^= 0xff;
-  await assert.rejects(decryptVault('lösenord', { ...blob, nonce: toBase64(bytes) }));
+  await assert.rejects(decryptVault('password', { ...blob, nonce: toBase64(bytes) }));
 });
 
-test('ny nonce och ny ciphertext vid varje kryptering', async () => {
-  const key = await deriveKey('lösenord', randomBytes(SALT_BYTES), FAST_ITER);
-  const a = await encryptWithKey(key, 'samma klartext');
-  const b = await encryptWithKey(key, 'samma klartext');
+test('fresh nonce and fresh ciphertext on every encryption', async () => {
+  const key = await deriveKey('password', randomBytes(SALT_BYTES), FAST_ITER);
+  const a = await encryptWithKey(key, 'same plaintext');
+  const b = await encryptWithKey(key, 'same plaintext');
   assert.notEqual(a.nonce, b.nonce);
   assert.notEqual(a.ciphertext, b.ciphertext);
-  assert.equal(await decryptWithKey(key, a.nonce, a.ciphertext), 'samma klartext');
-  assert.equal(await decryptWithKey(key, b.nonce, b.ciphertext), 'samma klartext');
+  assert.equal(await decryptWithKey(key, a.nonce, a.ciphertext), 'same plaintext');
+  assert.equal(await decryptWithKey(key, b.nonce, b.ciphertext), 'same plaintext');
 });
 
-test('iterations-fältet i blocket styr deriveringen', async () => {
-  const blob = await encryptVault('lösenord', 'data', 2500);
+test('the iterations field in the block drives the derivation', async () => {
+  const blob = await encryptVault('password', 'data', 2500);
   assert.equal(blob.iterations, 2500);
-  assert.equal(await decryptVault('lösenord', blob), 'data');
-  // fel iterationsantal => fel nyckel => kastar
-  await assert.rejects(decryptVault('lösenord', { ...blob, iterations: 2501 }));
+  assert.equal(await decryptVault('password', blob), 'data');
+  // wrong iteration count => wrong key => throws
+  await assert.rejects(decryptVault('password', { ...blob, iterations: 2501 }));
 });
 
-test('round-trip med seed-post', async () => {
+test('round-trip with a seed entry', async () => {
   const seedEntry = {
     id: '11111111-1111-4111-8111-111111111111',
     type: 'seed',
     title: 'Ledger',
     wallet: 'Ledger Nano X',
     words: parseSeedPhrase('abandon ability able about above absent absorb abstract absurd abuse access accident'),
-    passphrase: 'extra-ord-25',
+    passphrase: 'extra-25th-word',
     derivation: "m/44'/60'/0'/0/0",
-    notes: 'huvudplånboken',
+    notes: 'main wallet',
     created: '2026-06-10T00:00:00Z',
     modified: '2026-06-10T00:00:00Z',
   };
   const loginEntry = {
     id: '22222222-2222-4222-8222-222222222222',
     type: 'login',
-    title: 'Banken', username: 'daniel', password: 'pw', url: '', notes: '',
+    title: 'Bank', username: 'alice', password: 'pw', url: '', notes: '',
     created: '2026-06-10T00:00:00Z', modified: '2026-06-10T00:00:00Z',
   };
   const payload = JSON.stringify({ entries: [seedEntry, loginEntry], meta: {} });
-  const blob = await encryptVault('lösenord', payload, FAST_ITER);
-  const decrypted = JSON.parse(await decryptVault('lösenord', blob));
+  const blob = await encryptVault('password', payload, FAST_ITER);
+  const decrypted = JSON.parse(await decryptVault('password', blob));
   assert.deepEqual(decrypted.entries[0], seedEntry);
   assert.equal(decrypted.entries[0].words.length, 12);
   assert.deepEqual(decrypted.entries[1], loginEntry);
 });
 
-test('bakåtkompatibilitet: valv från gammal version (utan type-fält)', async () => {
-  // exakt det payload-format som appen skrev innan seed-stödet fanns
+test('backward compatibility: vault from an old version (no type field)', async () => {
+  // exactly the payload shape the app wrote before seed support existed
   const oldEntry = {
     id: '33333333-3333-4333-8333-333333333333',
-    title: 'Gammal post', username: 'anv', password: 'hemligt', url: 'https://ex.se',
-    notes: 'anteckning', created: '2026-01-01T00:00:00Z', modified: '2026-01-01T00:00:00Z',
+    title: 'Old entry', username: 'user', password: 'secret', url: 'https://example.com',
+    notes: 'note', created: '2026-01-01T00:00:00Z', modified: '2026-01-01T00:00:00Z',
   };
-  const blob = await encryptVault('lösenord', JSON.stringify({ entries: [oldEntry], meta: {} }), FAST_ITER);
+  const blob = await encryptVault('password', JSON.stringify({ entries: [oldEntry], meta: {} }), FAST_ITER);
 
-  // öppna: normalisering ger type "login" utan att något fält tappas
-  const opened = JSON.parse(await decryptVault('lösenord', blob)).entries.map(normalizeEntry);
+  // open: normalization assigns type "login" without losing any field
+  const opened = JSON.parse(await decryptVault('password', blob)).entries.map(normalizeEntry);
   assert.equal(opened[0].type, 'login');
   assert.deepEqual(opened[0], { ...oldEntry, type: 'login' });
 
-  // spara om och öppna igen — fortfarande ingen dataförlust
-  const blob2 = await encryptVault('lösenord', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
-  const reopened = JSON.parse(await decryptVault('lösenord', blob2)).entries.map(normalizeEntry);
+  // re-save and open again — still no data loss
+  const blob2 = await encryptVault('password', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
+  const reopened = JSON.parse(await decryptVault('password', blob2)).entries.map(normalizeEntry);
   assert.deepEqual(reopened, opened);
 });
 
-test('parseSeedPhrase: splitta på whitespace, trim + lowercase', () => {
+test('parseSeedPhrase: split on whitespace, trim + lowercase', () => {
   assert.deepEqual(
     parseSeedPhrase('  Abandon\tABILITY \n able  about '),
     ['abandon', 'ability', 'able', 'about']);
@@ -130,7 +130,7 @@ test('parseSeedPhrase: splitta på whitespace, trim + lowercase', () => {
   assert.deepEqual(parseSeedPhrase('   '), []);
 });
 
-test('BIP39-validering: ordlista och okända ord', () => {
+test('BIP39 validation: word list and unknown words', () => {
   assert.equal(BIP39_WORDS.split(' ').length, 2048);
   assert.equal(BIP39_SET.size, 2048);
   assert.ok(BIP39_SET.has('abandon') && BIP39_SET.has('zoo'));
@@ -141,46 +141,46 @@ test('BIP39-validering: ordlista och okända ord', () => {
   for (const n of [0, 11, 13, 23, 25]) assert.ok(!isValidSeedWordCount(n));
 });
 
-test('i18n: en och sv definierar exakt samma nycklar med samma typer', () => {
+test('i18n: en and sv define exactly the same keys with the same types', () => {
   const langs = Object.keys(STRINGS);
   assert.deepEqual(langs.sort(), ['en', 'sv']);
   const enKeys = Object.keys(STRINGS.en).sort();
   const svKeys = Object.keys(STRINGS.sv).sort();
   assert.deepEqual(svKeys, enKeys);
   for (const key of enKeys) {
-    assert.equal(typeof STRINGS.sv[key], typeof STRINGS.en[key], `typ för ${key}`);
+    assert.equal(typeof STRINGS.sv[key], typeof STRINGS.en[key], `type of ${key}`);
     if (typeof STRINGS.en[key] === 'string') {
-      assert.ok(STRINGS.en[key].length > 0, `en.${key} är tom`);
-      assert.ok(STRINGS.sv[key].length > 0, `sv.${key} är tom`);
+      assert.ok(STRINGS.en[key].length > 0, `en.${key} is empty`);
+      assert.ok(STRINGS.sv[key].length > 0, `sv.${key} is empty`);
     }
   }
 });
 
-test('round-trip i dist/valv.html (spara-simulering)', async () => {
+test('round-trip in dist/valv.html (save simulation)', async () => {
   let html;
   try {
     html = await readFile(new URL('../dist/valv.html', import.meta.url), 'utf8');
   } catch {
-    console.log('    (hoppas över — kör "node build.mjs" först)');
+    console.log('    (skipped — run "node build.mjs" first)');
     return;
   }
-  // Samma regex som appens spara-mekanism använder.
+  // The same regex the app's save mechanism uses.
   const VAULT_BLOCK_RE =
     /(<script id="vault-data" type="application\/json">)([\s\S]*?)(<\/script>)/;
-  assert.ok(VAULT_BLOCK_RE.test(html), 'vault-data-blocket finns i bygget');
+  assert.ok(VAULT_BLOCK_RE.test(html), 'the vault-data block exists in the build');
 
   const payload = JSON.stringify({ entries: [], meta: { modified: '2026-01-01T00:00:00Z' } });
-  const blob = await encryptVault('lösenord', payload, FAST_ITER);
+  const blob = await encryptVault('password', payload, FAST_ITER);
   const vaultJson = JSON.stringify(blob);
   const saved = html.replace(VAULT_BLOCK_RE, (_m, open, _old, close) => open + vaultJson + close);
 
-  // Blocket är utbytt, resten av filen är byte-identisk.
+  // The block is replaced; the rest of the file is byte-identical.
   assert.equal(saved.match(VAULT_BLOCK_RE)[2], vaultJson);
   assert.equal(saved.replace(VAULT_BLOCK_RE, '$1$3'), html.replace(VAULT_BLOCK_RE, '$1$3'));
 
-  // ...och datan i den "sparade" filen går att låsa upp.
+  // ...and the data in the "saved" file can be unlocked.
   const parsed = JSON.parse(saved.match(VAULT_BLOCK_RE)[2]);
-  assert.equal(await decryptVault('lösenord', parsed), payload);
+  assert.equal(await decryptVault('password', parsed), payload);
 });
 
 let failed = 0;
@@ -194,5 +194,5 @@ for (const [name, fn] of tests) {
     console.error('   ', err.message.split('\n')[0]);
   }
 }
-console.log(failed ? `\n${failed} test misslyckades` : `\nAlla ${tests.length} test gick igenom`);
+console.log(failed ? `\n${failed} test(s) failed` : `\nAll ${tests.length} tests passed`);
 process.exit(failed ? 1 : 0);

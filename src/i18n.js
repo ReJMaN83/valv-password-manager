@@ -182,7 +182,7 @@ const STRINGS = {
   },
 
   sv: {
-    // Låsskärmen
+    // Lock screen
     tagline: 'Krypterad lösenordshanterare i en fil',
     lockPasswordLabel: 'Master-lösenord',
     lockWrongPassword: 'Fel lösenord. Försök igen.',
@@ -198,7 +198,7 @@ const STRINGS = {
     createMismatch: 'Lösenorden matchar inte.',
     strengthLabels: ['', 'Mycket svagt', 'Svagt', 'Bra', 'Starkt'],
 
-    // Huvudvyn
+    // Main view
     dirtyIndicator: '● osparat',
     dirtyTitle: 'Ändringarna är inte sparade till fil',
     save: 'Spara',
@@ -215,7 +215,7 @@ const STRINGS = {
     copyUserTitle: 'Kopiera användarnamn',
     copyPasswordTitle: 'Kopiera lösenord',
 
-    // Post-dialogen (inloggningar)
+    // Entry dialog (logins)
     entryTitleNew: 'Ny post',
     entryTitleEdit: 'Redigera post',
     labelTitle: 'Titel',
@@ -234,7 +234,7 @@ const STRINGS = {
     showHidePasswordTitle: 'Visa eller dölj lösenordet',
     openGeneratorTitle: 'Öppna lösenordsgeneratorn',
 
-    // Seed-frasdialogen
+    // Seed phrase dialog
     seedTitleNew: 'Ny seed-fras',
     seedTitleView: 'Seed-fras',
     labelWallet: 'Wallet',
@@ -255,7 +255,7 @@ const STRINGS = {
     seedClipboardWarning: 'Seed-fras i urklipp — rensas om 30 s. Klistra aldrig in den på en webbsida.',
     wordAria: (n) => `Ord ${n}`,
 
-    // Urklipp
+    // Clipboard
     usernameWord: 'Användarnamn',
     passwordWord: 'Lösenord',
     seedPhraseWord: 'Seed-fras',
@@ -271,7 +271,7 @@ const STRINGS = {
     toastSaveAborted: 'Sparandet avbröts.',
     toastDownloaded: 'Nedladdad som valv.html — ersätt din gamla fil med den nya.',
 
-    // Generatorn
+    // Generator
     genTitle: 'Lösenordsgenerator',
     genLength: 'Längd:',
     genUpper: 'Versaler (A–Z)',
@@ -284,7 +284,7 @@ const STRINGS = {
     close: 'Stäng',
     genPickOne: 'Välj minst en teckentyp.',
 
-    // Inställningar
+    // Settings
     setTitle: 'Inställningar',
     setLanguageLabel: 'Språk',
     setAutoLockLabel: 'Auto-lås efter inaktivitet (minuter, 1–30)',
@@ -309,7 +309,7 @@ const STRINGS = {
     setExportDesc: 'Laddar ner alla poster som okrypterad JSON, t.ex. för flytt till en annan hanterare.',
     setExportBtn: 'Exportera okrypterat…',
 
-    // Exportvarningar
+    // Export warnings
     expWarning: 'Exporten är HELT OKRYPTERAD — alla lösenord hamnar i klartext i filen. '
       + 'Spara den bara på en säker plats och radera den så fort du är klar. Fortsätt?',
     expWarningSeeds: 'VARNING: valvet innehåller SEED-FRASER. Exporten är HELT OKRYPTERAD — '
@@ -317,7 +317,7 @@ const STRINGS = {
       + 'Spara aldrig filen i molnet, och radera den säkert direkt efter användning. Fortsätt ändå?',
     expOk: 'Exportera okrypterat',
 
-    // Uppgradera från fil
+    // Upgrade from file
     upTitle: 'Uppgradera från fil',
     upFileLabel: (name) => `Fil: ${name}`,
     upPasswordLabel: 'Master-lösenord för den valda filen',
@@ -330,7 +330,7 @@ const STRINGS = {
     upErrVersion: (v) => `Filen använder ett okänt valvformat (version ${v}).`,
     upErrIncomplete: 'Valvdatan i filen är ofullständig.',
 
-    // Intagsdialogen (delas av import och uppgradering)
+    // Merge dialog (shared by import and upgrade)
     mergeTitle: 'Ta in poster',
     mergeMessage: (count, existing) => `${count} poster hittades i filen. `
       + `Slå ihop med dina ${existing} befintliga poster, eller ersätt allt?`,
