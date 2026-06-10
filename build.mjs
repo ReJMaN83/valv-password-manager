@@ -21,7 +21,9 @@ let html = await src('index.html');
 const css = await src('style.css');
 // export-raden i crypto.js behövs bara när modulen importeras som ESM
 // i Node-testerna; i webbläsaren blir funktionerna vanliga globaler.
-const cryptoJs = (await src('crypto.js')).replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '');
+const stripExport = (code) => code.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '');
+const cryptoJs = stripExport(await src('crypto.js'));
+const seedJs = stripExport(await src('seed.js'));
 const appJs = await src('app.js');
 
 const replaceOnce = (haystack, needle, replacement) => {
@@ -32,6 +34,7 @@ const replaceOnce = (haystack, needle, replacement) => {
 
 html = replaceOnce(html, '<link rel="stylesheet" href="style.css">', `<style>\n${css}</style>`);
 html = replaceOnce(html, '<script src="crypto.js"></script>', `<script>\n${cryptoJs}</script>`);
+html = replaceOnce(html, '<script src="seed.js"></script>', `<script>\n${seedJs}</script>`);
 html = replaceOnce(html, '<script src="app.js"></script>', `<script>\n${appJs}</script>`);
 html = replaceOnce(html, '<!--BUILD:CSP-->', CSP);
 

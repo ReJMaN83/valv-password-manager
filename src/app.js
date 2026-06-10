@@ -204,7 +204,8 @@ async function openVault(key, salt, iterations, payload) {
   state.key = key;
   state.salt = salt;
   state.iterations = iterations;
-  state.entries = Array.isArray(payload.entries) ? payload.entries : [];
+  // normalizeEntry ger poster från äldre valv (utan type-fält) type "login"
+  state.entries = (Array.isArray(payload.entries) ? payload.entries : []).map(normalizeEntry);
   state.settings = Object.assign({ autoLockMinutes: 5 }, payload.meta && payload.meta.settings);
   // Krypterad kontrollsträng: låter "byt lösenord" verifiera det nuvarande
   // lösenordet utan att lösenordet eller någon hash av det sparas.
