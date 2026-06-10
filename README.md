@@ -4,8 +4,7 @@
 
 **Single-file encrypted password manager — the file is both the app and the vault.**
 
-<!-- TODO before publishing: replace OWNER/REPO in the badge URL -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml)
 
 > 📸 *Screenshot/GIF placeholder — dark-mode main view with the entry list and seed phrase grid.*
 

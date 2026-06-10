@@ -4,8 +4,7 @@
 
 **Krypterad lösenordshanterare i en enda fil — filen är både appen och valvet.**
 
-<!-- TODO före publicering: byt OWNER/REPO i badge-URL:en -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml)
 
 > 📸 *Plats för skärmdump/GIF — huvudvyn i mörkt tema med postlistan och seed-frasgriden.*
 
