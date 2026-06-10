@@ -442,5 +442,75 @@ $('entry-copy-password').addEventListener('click', () => {
 });
 
 // ============================================================
+// Spara: bygg en komplett ny HTML-fil och skriv den till disk
+function buildSavedHtml(vaultJson) {
+  if (!VAULT_BLOCK_RE.test(PRISTINE_SOURCE)) {
+    throw new Error('vault-data-blocket saknas i källkoden');
+  }
+  // Replacer-funktion så att $-tecken i JSON:en inte tolkas som
+  // specialreferenser av String.prototype.replace.
+  return PRISTINE_SOURCE.replace(VAULT_BLOCK_RE, (_m, open, _old, close) => open + vaultJson + close);
+}
+
+async function saveVault() {
+  if (!state.key) return;
+  const vaultJson = await updateLiveVaultBlock();
+  const html = buildSavedHtml(vaultJson);
+
+  // Primärt: File System Access API — kan skriva över filen på plats.
+  // Handtaget återanvänds så att efterföljande sparningar inte frågar igen.
+  if (window.showSaveFilePicker) {
+    try {
+      if (!state.fileHandle) {
+        state.fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'valv.html',
+          types: [{ description: 'HTML-fil', accept: { 'text/html': ['.html'] } }],
+        });
+      }
+      const writable = await state.fileHandle.createWritable();
+      await writable.write(html);
+      await writable.close();
+      setDirty(false);
+      toast('Sparat.');
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        toast('Sparandet avbröts.');
+        return; // användaren ångrade sig — fortfarande osparat
+      }
+      // Handtaget kan ha blivit ogiltigt (flyttad/raderad fil) eller API:t
+      // blockerat — släpp handtaget och fall tillbaka på nedladdning.
+      state.fileHandle = null;
+    }
+  }
+
+  // Fallback: Blob + nedladdningslänk.
+  downloadFile('valv.html', html, 'text/html');
+  setDirty(false);
+  toast('Nedladdad som valv.html — ersätt din gamla fil med den nya.');
+}
+
+function downloadFile(filename, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+$('save-btn').addEventListener('click', saveVault);
+
+// Varna om fönstret stängs med osparade ändringar.
+window.addEventListener('beforeunload', (event) => {
+  if (dirty) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
+
+// ============================================================
 // Start
 init();
