@@ -1,2 +1,12 @@
+# Build output — attached to GitHub releases instead of being committed
 dist/
+
+# Dependencies (E2E only; the app and build have none)
 node_modules/
+
+# Internal working notes, not part of the public repo
+HANDOVER.md
+
+# Local vault files and test artifacts — never commit a vault with data
+*.local.html
+valv-export*.json

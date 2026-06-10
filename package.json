@@ -1,0 +1,19 @@
+{
+  "name": "valv",
+  "version": "1.0.0",
+  "description": "Single-file encrypted password manager — the file is both the app and the vault.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=19"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node test/roundtrip.mjs",
+    "test:e2e": "node build.mjs && node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

@@ -1,187 +1,157 @@
+[🇬🇧 English](README.md) | [🇸🇪 Svenska](README.sv.md)
+
 # Valv
 
-En fristående, krypterad lösenordshanterare i **en enda HTML-fil**.
-Filen `valv.html` innehåller både hela applikationen och din krypterade
-data. Ingen server, inga konton, inga externa beroenden — den fungerar
-offline genom att du dubbelklickar på filen.
+**Single-file encrypted password manager — the file is both the app and the vault.**
 
-## Hur den fungerar
+<!-- TODO before publishing: replace OWNER/REPO in the badge URL -->
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 
-- Din data krypteras med **AES-256-GCM**. Nyckeln härleds från ditt
-  master-lösenord med **PBKDF2-SHA256 och 600 000 iterationer** (slumpat salt).
-- Vid varje sparning krypteras allt om med en ny slumpad nonce, och appen
-  bygger en komplett ny HTML-fil med den nya krypterade datan inbäddad.
-- Allt dekrypterat lever **endast i minnet** medan valvet är upplåst.
-  Ingenting skrivs någonsin i klartext till disk, localStorage, cookies
-  eller liknande. Master-lösenordet sparas aldrig någonstans.
-- Fel lösenord ger alltid ett tydligt fel (GCM-taggen validerar inte) —
-  aldrig korrupt data.
+> 📸 *Screenshot/GIF placeholder — dark-mode main view with the entry list and seed phrase grid.*
 
-## Användning
+`valv.html` is a complete password manager in one HTML file: the application
+code and your encrypted data travel together. Double-click the file and it
+runs — offline, from `file://`, in any modern browser.
 
-1. Öppna `valv.html` i en modern webbläsare (dubbelklicka på filen).
-2. **Första gången:** välj ett master-lösenord (minst 8 tecken) och klicka
-   *Skapa valv*. Klicka sedan **Spara** för att skriva valvet till fil.
-3. **Därefter:** skriv ditt master-lösenord och tryck Enter.
-4. Lägg till poster med *+ Inloggning* eller *+ Seed-fras*. Sök i realtid,
-   kopiera användarnamn och lösenord med knapparna (urklippet rensas
-   automatiskt efter 30 s).
-5. Klicka **Spara** efter ändringar:
-   - I Chrome/Edge kan filen skrivas över direkt (File System Access API).
-   - I Firefox/Safari laddas en ny `valv.html` ner — **ersätt din gamla
-     fil med den nya**. Den nedladdade filen är ditt nya valv.
-6. Indikatorn *● osparat* visas tills ändringarna har sparats till fil,
-   och webbläsaren varnar om du försöker stänga med osparade ändringar.
-7. Valvet låser sig själv efter inaktivitet (standard 5 min, ställbart
-   1–30 min under *Inställningar*). Osparade ändringar överlever ett lås —
-   de ligger kvar krypterade i sidan — men inte att fliken stängs.
+## Why
 
-### Seed-fraser (kryptoplånböcker)
+- **Zero runtime dependencies.** No server, no browser extension, no CDN, no
+  framework, no network requests — the only cryptography provider is the
+  browser's built-in Web Crypto API.
+- **Backup = copy the file.** Every copy is a complete encrypted vault. Put it
+  on a USB stick, a cloud drive, an email to yourself — the contents stay
+  encrypted wherever the file goes.
+- **Nothing to install, nothing to trust but the file.** Auditable by opening
+  it in a text editor: one HTML file, ~90 kB, readable source.
 
-Valv kan även lagra BIP39-seed-fraser (12/15/18/21/24 ord) med valfri
-passphrase och derivation path. Orden visas i en numrerad grid — ordningen
-är avgörande — och valideras mot den engelska BIP39-ordlistan (okända ord
-varnas men blockeras inte; andra ordlistor och språk förekommer). Klistra
-in hela frasen i första ordfältet så fylls alla fält i automatiskt.
+## Security model
 
-Sparade seed-poster öppnas alltid **dolda**: orden finns inte ens i sidans
-DOM förrän du klickar *Visa*. Sökningen omfattar bara titel och wallet —
-aldrig orden själva.
+| Aspect | Choice |
+|---|---|
+| Encryption | AES-256-GCM (authenticated encryption) |
+| Key derivation | PBKDF2-SHA256, **600 000 iterations**, 16-byte random salt |
+| Nonce | 12 bytes, freshly random **on every save** |
+| Integrity | GCM tag — a wrong password or tampered data fails decryption cleanly; corrupt plaintext is never shown |
+| Format versioning | The iteration count and format version are fields in the file, so they can be raised in future versions without breaking old vaults |
 
-**Tänk på:** en seed-fras är känsligare än ett lösenord — den kan inte
-bytas ut om den läcker; den som har frasen har plånboken, för alltid.
-För större innehav bör ett digitalt valv som detta vara ett *komplement*:
-ha den primära backupen på papper eller metall, offline. Klistra aldrig
-in en seed-fras på en webbsida — Valv varnar när frasen kopieras och
-rensar urklippet efter 30 s, men urklippshistorik kan finnas kvar i ditt
-operativsystem.
+Plaintext never touches disk, `localStorage`, `sessionStorage`, IndexedDB or
+cookies. Decrypted data lives only in JavaScript variables while the vault is
+unlocked; the master password is never stored or logged anywhere. The only
+unencrypted metadata in the file is the **UI language choice** — it has to be
+readable before unlock so the lock screen can follow it, and which of two
+languages you prefer reveals nothing about the vault's contents.
 
-## Uppgradera till en ny version av appen
+**Protects against:** someone obtaining the file (theft, leaked cloud
+account, lost USB stick) — given a strong master password; tampering with the
+encrypted data (GCM detects every change); network-based attacks (there is no
+network activity, plus a strict Content Security Policy).
 
-Ett nytt nedladdat `valv.html` är ett tomt skal — din data ligger i din
-gamla fil. Så här flyttar du in den:
+**Does not protect against:** malware on your device (keyloggers, memory
+dumps), malicious browser extensions, someone modifying the *app code* in
+your copy of the file (encryption protects the data, not the code), weak
+master passwords, or a forgotten master password — **there is no recovery;
+the data is gone.**
 
-1. Ladda ner det nya `valv.html`-skalet och öppna det.
-2. Skapa ett valv (välj master-lösenord — gärna samma som tidigare).
-3. Öppna *Inställningar → Uppgradera från fil…* och peka på din **gamla**
-   `valv.html`.
-4. Ange den gamla filens master-lösenord. Välj *Slå ihop* eller *Ersätt allt*.
-5. Klicka **Spara** och ersätt din gamla fil med den nya.
+**Honest limitations:** JavaScript cannot guarantee memory wiping — strings
+are immutable and garbage collection decides when memory is reclaimed, so a
+process memory dump shortly after locking may in theory contain remnants.
+Clipboard auto-clear requires the tab to be focused, and OS clipboard
+history is outside the app's control. Seed phrases deserve extra caution:
+unlike passwords they cannot be rotated after a leak — for significant
+holdings keep the primary backup on paper or metal, offline, and treat Valv
+as a complement.
 
-”Uppgradera från fil” läser den gamla filens krypterade datablock direkt
-och dekrypterar i minnet — ingen okrypterad data hamnar någonsin på disk.
-Det är därför att föredra framför JSON-vägen (*Export* i gamla filen →
-*Importera JSON* i den nya), som bara bör användas för flytt till/från
-andra program. Vid *Slå ihop* behålls poster med krockande id som
-dubbletter — inget skrivs över tyst.
+## Features
 
-## Backup
+- **Login entries** — title, username, password, URL, notes; copy buttons
+  with **30-second clipboard auto-clear**.
+- **Seed phrase entries (BIP39)** — 12/15/18/21/24 words in a numbered grid,
+  paste-to-split a whole phrase, validation against the official English
+  word list (warns, never blocks), optional passphrase and derivation path.
+  Stored phrases open **masked**: the words are not even present in the DOM
+  until you click Show. Search covers title and wallet — never the words.
+- **Password generator** — length 8–64, character-class toggles,
+  `crypto.getRandomValues` with rejection sampling (no modulo bias).
+- **Auto-lock** after 1–30 minutes of inactivity (default 5), plus manual
+  lock. Unsaved changes survive a lock — re-encrypted into the page.
+- **Change master password** — verifies the current password, re-encrypts
+  with a fresh salt.
+- **Upgrade from file** — point a new app shell at your old `valv.html`,
+  enter its master password, and the entries are brought in without any
+  unencrypted data ever touching disk. JSON import/export also available
+  (with a stern warning) for migration to/from other managers.
+- **English and Swedish** UI, dark theme, responsive layout.
 
-Backup = **kopiera filen**. Lägg `valv.html` på t.ex. Google Drive, ett
-USB-minne eller i valfri mapp som säkerhetskopieras. Varje kopia är ett
-komplett, krypterat valv. Spara gärna flera generationer.
-
-## ⚠️ Viktigt
-
-- **Glömt master-lösenord = datan är borta för alltid.** Det finns ingen
-  återställning, ingen bakdörr, inget konto. Det är hela poängen.
-- Exportfunktionen (*Inställningar → Export*) skriver en **okrypterad**
-  JSON-fil. Använd den bara för migrering och radera den direkt efteråt.
-
-## Hotmodell
-
-**Skyddar mot:**
-
-- Att någon kommer över filen (stöld, läckt molnkonto, borttappat USB):
-  innehållet är AES-256-GCM-krypterat och nyckelderiveringen med 600 000
-  PBKDF2-iterationer gör gissningsattacker dyra — förutsatt ett starkt
-  master-lösenord.
-- Manipulation av den krypterade datan: GCM upptäcker varje ändring och
-  vägrar dekryptera.
-- Nätverksattacker vid användning: appen gör inga nätverksanrop alls och
-  har en strikt Content Security Policy.
-
-**Skyddar INTE mot:**
-
-- Skadlig kod på din egen dator (keyloggers, minnesdumpar) — är enheten
-  komprometterad kan lösenorden läsas när valvet är upplåst.
-- Skadliga webbläsartillägg, som kan läsa och ändra alla sidor du öppnar.
-- Någon som ändrar **appkoden** i din HTML-fil: krypteringen skyddar
-  datan, inte koden. Förvara filen så att obehöriga inte kan skriva till
-  den, och öppna inga kopior du inte litar på.
-- Svaga master-lösenord — välj långt och unikt.
-- Att du glömmer master-lösenordet (se ovan).
-- Konsekvenserna av en läckt **seed-fras**: ett lösenord kan roteras efter
-  ett intrång, en seed-fras kan det inte — skadan är permanent och
-  ekonomisk. Digital lagring av seed-fraser höjer alltid risken jämfört
-  med papper/metall offline; använd Valv som komplement, inte som enda
-  kopia, för innehav som betyder något.
-
-**Tekniska begränsningar (best effort):**
-
-- Vid lås släpps alla referenser till dekrypterad data, men JavaScript
-  ger ingen möjlighet att garanterat skriva över minne (strängar är
-  immutabla och GC styr). En minnesdump av webbläsarprocessen strax efter
-  lås kan i teorin innehålla rester.
-- Rensningen av urklipp efter 30 s kräver att webbläsarfliken har fokus;
-  vissa system har dessutom urklippshistorik som appen inte kan tömma.
-
-## Utveckling
+## Architecture
 
 ```
-src/            index.html, style.css, crypto.js, app.js (modulär källkod)
-build.mjs       inlinar allt till dist/valv.html, validerar inga externa referenser
-test/roundtrip.mjs   kryptotester + spara-simulering (ren Node, inga beroenden)
-test/e2e.mjs    frivillig browser-verifiering (kräver playwright-core)
+src/
+  index.html   markup (English fallback text + data-i18n attributes)
+  style.css    dark, minimal, responsive
+  crypto.js    PBKDF2 + AES-GCM module — runs in browser AND Node
+  i18n.js      all UI strings, { en, sv }
+  seed.js      BIP39 word list + seed helpers — DOM-free, dual-environment
+  app.js       application logic
+build.mjs      inlines src/ into dist/valv.html, validates no external refs
+test/
+  roundtrip.mjs  crypto + format tests (plain Node, no dependencies)
+  e2e.mjs        full browser verification (Playwright Chromium)
 ```
 
-```bash
-node build.mjs            # bygger dist/valv.html
-node test/roundtrip.mjs   # kryptotester (Node >= 19)
-node test/e2e.mjs         # round-trip i riktig Chromium (frivillig)
-```
+`node build.mjs` produces `dist/valv.html` and fails the build if any
+external reference survives inlining. The dual-environment modules export
+ESM for the Node tests; the build strips the export line for the browser.
+`dist/` is not committed — grab it from a release or build it yourself.
 
-`crypto.js` körs oförändrad i både webbläsaren och Node — bygget strippar
-bara ESM-exporten. CSP-metataggen injiceras av bygget eftersom källfilerna
-under utveckling refererar varandra externt.
+### The self-serialization mechanism
 
-### Spara-mekanismen (varför den ser ut som den gör)
+The technically interesting part: how does a running page save *itself* with
+new data? Valv captures `document.documentElement.outerHTML` **once, at
+load time**, before the app has touched the DOM. Saving means replacing the
+contents of the embedded `<script id="vault-data">` block in that pristine
+string and writing the result to disk (File System Access API where
+available, download fallback elsewhere).
 
-Appen läser `document.documentElement.outerHTML` **en gång vid start**,
-innan någon DOM-mutation skett, och sparar den som "orörd källkod". Vid
-spara byts innehållet i `<script id="vault-data">`-blocket ut i den
-strängen. Att läsa `outerHTML` vid spara-tillfället vore farligt — då
-innehåller DOM:en renderade poster i klartext som skulle följa med ut i
-filen. En separat template hade dubblerat hela appen. Webbläsarens
-serialisering är stabil mellan generationer, vilket E2E-testet verifierar
-över två fullständiga spara/öppna-varv.
+Capturing at load — rather than at save time — matters: by save time the DOM
+contains decrypted entries rendered in plaintext, which would otherwise be
+serialized straight into the saved file. The snapshot contains only app code
+and the encrypted block, and browser serialization is stable across
+generations, which the E2E suite proves by saving and reopening the file
+twice in a row.
 
-## Manuell testchecklista
+## Testing
 
-- [ ] **First-run:** öppna en nybyggd `valv.html` → skapa-läget visas,
-      styrkemätaren reagerar, olika lösenord i fälten ger fel.
-- [ ] **Skapa + spara:** skapa valv, lägg till en post, spara.
-- [ ] **Round-trip (viktigast):** öppna den **sparade/nedladdade** filen,
-      lås upp, verifiera posten, ändra något, spara igen och öppna även
-      den filen.
-- [ ] **Fel lösenord:** ger "Fel lösenord", aldrig kraschad/korrupt vy.
-- [ ] **Lås/upplås:** manuellt lås tömmer listan; upplåsning visar datan
-      igen; osparad ändring finns kvar efter lås → upplås.
-- [ ] **Auto-lås:** ställ 1 min, vänta — valvet låser sig.
-- [ ] **Kopiera:** kopiera lösenord, klistra in; efter 30 s är urklippet tomt.
-- [ ] **Generator:** längd och teckentyper påverkar resultatet.
-- [ ] **Seed-post:** skapa med inklistrad fras (fälten fylls i), spara,
-      öppna sparad fil → orden dolda tills *Visa*, rätt ordning, felstavat
-      ord ger röd kant men går att spara.
-- [ ] **Gammalt valv:** en fil sparad före seed-stödet låses upp och
-      sparas om utan att poster förloras.
-- [ ] **Uppgradera från fil:** nytt tomt skal + gammal fil med data →
-      fel lösenord ger fel med ny chans, rätt lösenord tar in posterna,
-      spara → den sparade filen fungerar (round-trip).
-- [ ] **Importera JSON:** export från ett valv tas in i ett annat;
-      ogiltig fil ger tydligt fel i stället för krasch.
-- [ ] **Byt lösenord:** kräver rätt nuvarande; gamla filen på disk öppnas
-      med gamla lösenordet, nysparad fil med det nya.
-- [ ] **Export:** varningsdialog visas; JSON innehåller posterna.
-- [ ] **Mobilvy:** smal skärm — knappar och dialoger användbara.
-- [ ] **Offline/file://:** allt ovan med nätverket avslaget.
+- **Node** (`npm test`): 13 tests — encrypt/decrypt round-trips at the full
+  600 000 iterations, wrong-password and tamper rejection, nonce uniqueness,
+  format versioning, BIP39 validation, backward compatibility with vaults
+  from older versions, i18n key parity.
+- **E2E** (`npm run test:e2e`): 55 checks in real Chromium — among them the
+  project's core invariant: **a saved file, opened, must work identically
+  and be able to save a working file in turn.** The suite runs two full
+  save→reopen generations, plus seed phrase masking, upgrade-from-file,
+  import/export and language round-trips.
+
+## Getting started
+
+1. Download `valv.html` from the [latest release](../../releases/latest)
+   (attached as a release artifact — no build step needed), or build it
+   yourself: `node build.mjs`.
+2. Open the file in a browser (double-click).
+3. Choose a master password — done.
+
+On Chrome and Edge, **Save** overwrites the file in place via the File
+System Access API. On Firefox and Safari the save arrives as a downloaded
+`valv.html` — replace your old file with it; the download *is* your new
+vault.
+
+## Disclaimer
+
+This is a hobby/portfolio project. The cryptographic design is conservative
+(WebCrypto primitives only, authenticated encryption, high-iteration KDF),
+but the code has **not** been independently audited. For critical needs,
+use an established, audited password manager such as
+[KeePassXC](https://keepassxc.org/) or [Bitwarden](https://bitwarden.com/).
+
+## License
+
+[MIT](LICENSE)
