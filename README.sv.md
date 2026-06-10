@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/ReJMaN83/valv-password-manager/actions/workflows/ci.yml)
 
-<img width="1247" height="630" alt="image" src="https://github.com/user-attachments/assets/3fe59cb4-9e9b-4729-bff9-356dd2d3eb57" />
+<img width="1070" height="492" alt="image" src="https://github.com/user-attachments/assets/6ad2d2c0-00e7-4d8d-a5b2-788d88c95acc" />
 
 `valv.html` är en komplett lösenordshanterare i en HTML-fil: appkoden och din
 krypterade data reser tillsammans. Dubbelklicka på filen så kör den —
