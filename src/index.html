@@ -54,6 +54,7 @@
       <div class="toolbar">
         <button id="new-login-btn" class="primary" data-i18n="newLogin">+ Login</button>
         <button id="new-seed-btn" class="primary" data-i18n="newSeed">+ Seed phrase</button>
+        <button id="new-apikey-btn" class="primary" data-i18n="newApikey">+ API key</button>
         <button id="generator-btn" data-i18n="generator">Generator</button>
         <button id="settings-btn" data-i18n="settings">Settings</button>
       </div>
@@ -129,6 +130,50 @@
       <button type="button" id="seed-copy" data-i18n="copyPhrase">Copy phrase</button>
       <span class="spacer"></span>
       <button type="button" id="seed-cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="apikey-dialog">
+  <form id="apikey-form">
+    <h2 id="apikey-dialog-title">New API key</h2>
+    <label for="apikey-title" data-i18n="labelTitle">Title</label>
+    <input id="apikey-title" type="text" required>
+    <label for="apikey-service" data-i18n="labelService">Service</label>
+    <input id="apikey-service" type="text" autocomplete="off" data-i18n-placeholder="servicePlaceholder" placeholder="e.g. Stripe, AWS">
+    <label for="apikey-key" data-i18n="labelApiKey">API key</label>
+    <div class="input-row">
+      <input id="apikey-key" type="password" autocomplete="off" spellcheck="false">
+      <button type="button" id="apikey-toggle-key" data-i18n-title="showHideKeyTitle" title="Show or hide the API key">Show</button>
+      <button type="button" id="apikey-copy-key" data-i18n="copy" data-i18n-title="copyKeyTitle" title="Copy API key">Copy</button>
+    </div>
+    <label for="apikey-secret" data-i18n="labelApiSecret">Secret (optional)</label>
+    <div class="input-row">
+      <input id="apikey-secret" type="password" autocomplete="off" spellcheck="false">
+      <button type="button" id="apikey-toggle-secret" data-i18n-title="showHideSecretTitle" title="Show or hide the secret">Show</button>
+      <button type="button" id="apikey-copy-secret" data-i18n="copy" data-i18n-title="copySecretTitle" title="Copy secret">Copy</button>
+    </div>
+    <p id="apikey-error" class="error hidden"></p>
+    <label for="apikey-environment" data-i18n="labelEnvironment">Environment</label>
+    <input id="apikey-environment" type="text" autocomplete="off" list="apikey-env-list">
+    <datalist id="apikey-env-list">
+      <option value="production"></option>
+      <option value="test"></option>
+      <option value="sandbox"></option>
+    </datalist>
+    <label for="apikey-scopes" data-i18n="labelScopes">Scopes</label>
+    <input id="apikey-scopes" type="text" autocomplete="off" data-i18n-placeholder="scopesPlaceholder" placeholder="e.g. read:users write:orders">
+    <label for="apikey-expires" data-i18n="labelExpires">Expires (optional)</label>
+    <input id="apikey-expires" type="date">
+    <label for="apikey-url" data-i18n="labelUrl">URL</label>
+    <input id="apikey-url" type="text" autocomplete="off">
+    <label for="apikey-notes" data-i18n="labelNotes">Notes</label>
+    <textarea id="apikey-notes" rows="3"></textarea>
+    <div class="dialog-buttons">
+      <button type="button" id="apikey-delete" class="danger hidden" data-i18n="deleteBtn">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="apikey-cancel" data-i18n="cancel">Cancel</button>
       <button type="submit" class="primary" data-i18n="saveEntry">Save entry</button>
     </div>
   </form>

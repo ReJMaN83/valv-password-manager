@@ -69,6 +69,11 @@ as a complement.
   word list (warns, never blocks), optional passphrase and derivation path.
   Stored phrases open **masked**: the words are not even present in the DOM
   until you click Show. Search covers title and wallet — never the words.
+- **API key entries** — service, key + optional secret (masked like the
+  seed words: not in the DOM until you click Show), environment, scopes and
+  an optional expiry date with a subtle expiring-soon indicator and a
+  distinct expired marker in the list. Search matches title, service and
+  URL — never the key or secret.
 - **Password generator** — length 8–64, character-class toggles,
   `crypto.getRandomValues` with rejection sampling (no modulo bias).
 - **Auto-lock** after 1–30 minutes of inactivity (default 5), plus manual
@@ -120,11 +125,11 @@ twice in a row.
 
 ## Testing
 
-- **Node** (`npm test`): 13 tests — encrypt/decrypt round-trips at the full
+- **Node** (`npm test`): 15 tests — encrypt/decrypt round-trips at the full
   600 000 iterations, wrong-password and tamper rejection, nonce uniqueness,
   format versioning, BIP39 validation, backward compatibility with vaults
-  from older versions, i18n key parity.
-- **E2E** (`npm run test:e2e`): 55 checks in real Chromium — among them the
+  from older versions, mixed-type vaults, i18n key parity.
+- **E2E** (`npm run test:e2e`): 73 checks in real Chromium — among them the
   project's core invariant: **a saved file, opened, must work identically
   and be able to save a working file in turn.** The suite runs two full
   save→reopen generations, plus seed phrase masking, upgrade-from-file,

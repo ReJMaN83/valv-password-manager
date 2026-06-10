@@ -283,7 +283,7 @@ async function lock() {
   for (const dlg of document.querySelectorAll('dialog')) if (dlg.open) dlg.close();
   $('entry-list').textContent = '';
   for (const field of document.querySelectorAll(
-    'input[type="text"], input[type="password"], input[type="search"], textarea')) {
+    'input[type="text"], input[type="password"], input[type="search"], input[type="date"], textarea')) {
     field.value = '';
   }
   $('main-screen').classList.add('hidden');
@@ -346,11 +346,13 @@ function renderList() {
   const list = $('entry-list');
   list.textContent = '';
   if (!state.entries) return;
-  // The search index for seed entries is title + wallet — NEVER the words.
+  // The search index never includes secret material: seed entries match on
+  // title + wallet (never the words), API key entries on title + service +
+  // url (never key/secret).
   const matchesQuery = (e) => {
     if (!query) return true;
-    const haystacks = e.type === 'seed'
-      ? [e.title, e.wallet]
+    const haystacks = e.type === 'seed' ? [e.title, e.wallet]
+      : e.type === 'apikey' ? [e.title, e.service, e.url]
       : [e.title, e.username, e.url];
     return haystacks.some((value) => (value || '').toLowerCase().includes(query));
   };
@@ -362,6 +364,7 @@ function renderList() {
     const li = document.createElement('li');
     li.tabIndex = 0;
     const isSeed = entry.type === 'seed';
+    const isApikey = entry.type === 'apikey';
 
     const info = document.createElement('div');
     info.className = 'entry-info';
@@ -370,7 +373,9 @@ function renderList() {
     title.textContent = entry.title; // always textContent — never innerHTML with user data
     const sub = document.createElement('span');
     sub.className = 'entry-sub';
-    sub.textContent = isSeed ? (entry.wallet || '') : (entry.username || entry.url || '');
+    sub.textContent = isSeed ? (entry.wallet || '')
+      : isApikey ? (entry.service || entry.url || '')
+      : (entry.username || entry.url || '');
     info.append(title, sub);
 
     const actions = document.createElement('div');
@@ -381,6 +386,29 @@ function renderList() {
       const badge = document.createElement('span');
       badge.className = 'badge';
       badge.textContent = '🌱 SEED';
+      actions.append(badge);
+    } else if (isApikey) {
+      const expiry = apikeyExpiryStatus(entry);
+      if (expiry) {
+        const mark = document.createElement('span');
+        mark.className = 'expiry ' + (expiry.expired ? 'expired' : 'warn');
+        mark.textContent = expiry.expired ? t('expiryExpired')
+          : expiry.days === 0 ? t('expiryToday') : t('expiryDays', expiry.days);
+        actions.append(mark);
+      }
+      actions.append(makeButton(t('listCopyKey'), t('copyKeyTitle'), (ev) => {
+        ev.stopPropagation();
+        copySecret(entry.key, t('apiKeyWord'));
+      }));
+      if (entry.secret) {
+        actions.append(makeButton(t('listCopySecret'), t('copySecretTitle'), (ev) => {
+          ev.stopPropagation();
+          copySecret(entry.secret, t('apiSecretWord'));
+        }));
+      }
+      const badge = document.createElement('span');
+      badge.className = 'badge api';
+      badge.textContent = 'API';
       actions.append(badge);
     } else {
       actions.append(
@@ -395,7 +423,9 @@ function renderList() {
       );
     }
 
-    const open = () => (isSeed ? openSeedDialog(entry.id) : openEntryDialog(entry.id));
+    const open = () => (isSeed ? openSeedDialog(entry.id)
+      : isApikey ? openApikeyDialog(entry.id)
+      : openEntryDialog(entry.id));
     li.append(info, actions);
     li.addEventListener('click', open);
     li.addEventListener('keydown', (ev) => {
@@ -446,6 +476,7 @@ function openEntryDialog(id) {
 
 $('new-login-btn').addEventListener('click', () => openEntryDialog(null));
 $('new-seed-btn').addEventListener('click', () => openSeedDialog(null));
+$('new-apikey-btn').addEventListener('click', () => openApikeyDialog(null));
 $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 
 // Clear the fields even when the dialog is closed with Escape, so that
@@ -711,6 +742,161 @@ $('seed-copy').addEventListener('click', () => {
 });
 
 // ============================================================
+// API key entries
+//
+// Same security model as the seed words: when a saved API key entry is
+// opened, the key and secret fields are EMPTY (value = '') with bullet
+// placeholders and readonly — the real values are not in the DOM until
+// the user clicks Show, and hiding empties the field again. If the entry
+// is saved while a field is still masked, the stored value is kept.
+// New entries differ only in that the value must live in the field while
+// being typed; it is rendered as a password field with a Show/Hide toggle.
+let apikeyEditingId = null;
+// per-field mode: 'masked' (stored value not in DOM) | 'hidden' (value in
+// field, type=password) | 'visible' (value in field, type=text)
+const apikeyFieldMode = { key: 'hidden', secret: 'hidden' };
+
+// Returns null, or { expired: boolean, days: number } when the entry has a
+// valid expiry date that is in the past or within 30 days. Computed against
+// Date.now() at render time — no background logic needed.
+function apikeyExpiryStatus(entry) {
+  if (!entry.expires) return null;
+  const expires = new Date(entry.expires).getTime();
+  if (Number.isNaN(expires)) return null;
+  const days = Math.floor((expires - Date.now()) / 86400000);
+  if (days < 0) return { expired: true, days };
+  if (days <= 30) return { expired: false, days };
+  return null;
+}
+
+function setApikeyFieldMode(field, mode) {
+  const input = $('apikey-' + field);
+  const toggle = $('apikey-toggle-' + field);
+  apikeyFieldMode[field] = mode;
+  if (mode === 'masked') {
+    input.value = '';
+    input.placeholder = '••••••••';
+    input.readOnly = true;
+    input.type = 'text'; // nothing real to hide — the field only shows dots
+    toggle.textContent = t('show');
+  } else {
+    input.placeholder = '';
+    input.readOnly = false;
+    input.type = mode === 'visible' ? 'text' : 'password';
+    toggle.textContent = mode === 'visible' ? t('hide') : t('show');
+  }
+}
+
+function toggleApikeyField(field) {
+  const entry = apikeyEditingId && state.entries.find((e) => e.id === apikeyEditingId);
+  const mode = apikeyFieldMode[field];
+  if (mode === 'masked') {
+    setApikeyFieldMode(field, 'visible');
+    $('apikey-' + field).value = entry ? (entry[field] || '') : '';
+  } else if (mode === 'visible' && entry) {
+    // re-mask an existing entry's field: clear it from the DOM again
+    // (any edits made while visible are discarded, like the seed words)
+    setApikeyFieldMode(field, 'masked');
+  } else {
+    setApikeyFieldMode(field, mode === 'visible' ? 'hidden' : 'visible');
+  }
+}
+
+$('apikey-toggle-key').addEventListener('click', () => toggleApikeyField('key'));
+$('apikey-toggle-secret').addEventListener('click', () => toggleApikeyField('secret'));
+
+function openApikeyDialog(id) {
+  apikeyEditingId = id || null;
+  const entry = id ? state.entries.find((e) => e.id === id) : null;
+  $('apikey-dialog-title').textContent = entry ? t('apikeyTitleEdit') : t('apikeyTitleNew');
+  $('apikey-title').value = entry ? entry.title : '';
+  $('apikey-service').value = entry ? entry.service || '' : '';
+  $('apikey-environment').value = entry ? entry.environment || '' : '';
+  $('apikey-scopes').value = entry ? entry.scopes || '' : '';
+  $('apikey-expires').value = entry ? entry.expires || '' : '';
+  $('apikey-url').value = entry ? entry.url || '' : '';
+  $('apikey-notes').value = entry ? entry.notes || '' : '';
+  $('apikey-error').classList.add('hidden');
+  $('apikey-delete').classList.toggle('hidden', !entry);
+  // existing entry: both secret fields start masked; new entry: editable
+  setApikeyFieldMode('key', entry ? 'masked' : 'hidden');
+  setApikeyFieldMode('secret', entry ? 'masked' : 'hidden');
+  $('apikey-dialog').showModal();
+  $('apikey-title').focus();
+}
+
+$('apikey-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const title = $('apikey-title').value.trim();
+  if (!title) return;
+  const existing = apikeyEditingId ? state.entries.find((e) => e.id === apikeyEditingId) : null;
+  // a still-masked field means "keep the stored value"
+  const key = apikeyFieldMode.key === 'masked' ? existing.key : $('apikey-key').value;
+  const secret = apikeyFieldMode.secret === 'masked' ? (existing.secret || '') : $('apikey-secret').value;
+  if (!key || !key.trim()) {
+    const error = $('apikey-error');
+    error.textContent = t('apikeyKeyRequired');
+    error.classList.remove('hidden');
+    return;
+  }
+  const now = new Date().toISOString();
+  const values = {
+    type: 'apikey',
+    title,
+    service: $('apikey-service').value.trim(),
+    key,
+    secret,
+    environment: $('apikey-environment').value.trim(),
+    scopes: $('apikey-scopes').value.trim(),
+    expires: $('apikey-expires').value,
+    url: $('apikey-url').value.trim(),
+    notes: $('apikey-notes').value,
+  };
+  if (existing) {
+    Object.assign(existing, values, { modified: now });
+  } else {
+    state.entries.push({ id: crypto.randomUUID(), ...values, created: now, modified: now });
+  }
+  markDirty();
+  $('apikey-dialog').close();
+  renderList();
+});
+
+$('apikey-cancel').addEventListener('click', () => $('apikey-dialog').close());
+
+// Clear everything on close (including Escape) so no secrets remain in the DOM.
+$('apikey-dialog').addEventListener('close', () => {
+  for (const id of ['apikey-title', 'apikey-service', 'apikey-key', 'apikey-secret',
+    'apikey-environment', 'apikey-scopes', 'apikey-expires', 'apikey-url', 'apikey-notes']) {
+    $(id).value = '';
+  }
+  apikeyEditingId = null;
+  apikeyFieldMode.key = 'hidden';
+  apikeyFieldMode.secret = 'hidden';
+});
+
+$('apikey-delete').addEventListener('click', async () => {
+  const entry = state.entries && state.entries.find((e) => e.id === apikeyEditingId);
+  if (!entry) return;
+  if (!(await confirmDialog(t('apikeyDeleteConfirm', entry.title), t('deleteBtn')))) return;
+  state.entries = state.entries.filter((e) => e.id !== entry.id);
+  markDirty();
+  $('apikey-dialog').close();
+  renderList();
+});
+
+$('apikey-copy-key').addEventListener('click', () => {
+  const entry = apikeyEditingId && state.entries.find((e) => e.id === apikeyEditingId);
+  const value = apikeyFieldMode.key === 'masked' ? (entry && entry.key) : $('apikey-key').value;
+  copySecret(value, t('apiKeyWord'));
+});
+$('apikey-copy-secret').addEventListener('click', () => {
+  const entry = apikeyEditingId && state.entries.find((e) => e.id === apikeyEditingId);
+  const value = apikeyFieldMode.secret === 'masked' ? (entry && entry.secret) : $('apikey-secret').value;
+  copySecret(value, t('apiSecretWord'));
+});
+
+// ============================================================
 // Save: build a complete new HTML file and write it to disk
 function buildSavedHtml(vaultJson) {
   if (!VAULT_BLOCK_RE.test(PRISTINE_SOURCE)) {
@@ -915,8 +1101,13 @@ $('cp-submit').addEventListener('click', async () => {
 });
 
 $('export-btn').addEventListener('click', async () => {
+  // Seed phrases are the gravest content (cannot be rotated), then API keys.
   const hasSeeds = state.entries.some((e) => e.type === 'seed');
-  const ok = await confirmDialog(hasSeeds ? t('expWarningSeeds') : t('expWarning'), t('expOk'));
+  const hasApikeys = state.entries.some((e) => e.type === 'apikey');
+  const warning = hasSeeds ? t('expWarningSeeds')
+    : hasApikeys ? t('expWarningApikeys')
+    : t('expWarning');
+  const ok = await confirmDialog(warning, t('expOk'));
   if (!ok) return;
   const json = JSON.stringify(
     { entries: state.entries, meta: { exported: new Date().toISOString() } },

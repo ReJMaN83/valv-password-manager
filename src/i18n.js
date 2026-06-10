@@ -40,7 +40,7 @@ const STRINGS = {
     newSeed: '+ Seed phrase',
     generator: 'Generator',
     settings: 'Settings',
-    emptyNone: 'No entries yet. Click “+ Login” or “+ Seed phrase”.',
+    emptyNone: 'No entries yet. Click “+ Login”, “+ Seed phrase” or “+ API key”.',
     emptyNoMatches: 'Nothing matches your search.',
     listCopyUser: 'User',
     listCopyPassword: 'Pass',
@@ -86,6 +86,32 @@ const STRINGS = {
     seedNoWords: 'No words to copy.',
     seedClipboardWarning: 'Seed phrase in clipboard — cleared in 30 s. Never paste it into a website.',
     wordAria: (n) => `Word ${n}`,
+
+    // API key entries
+    newApikey: '+ API key',
+    apikeyTitleNew: 'New API key',
+    apikeyTitleEdit: 'API key',
+    labelService: 'Service',
+    servicePlaceholder: 'e.g. Stripe, AWS',
+    labelApiKey: 'API key',
+    labelApiSecret: 'Secret (optional)',
+    labelEnvironment: 'Environment',
+    labelScopes: 'Scopes',
+    scopesPlaceholder: 'e.g. read:users write:orders',
+    labelExpires: 'Expires (optional)',
+    apikeyKeyRequired: 'The API key field must be filled in.',
+    apikeyDeleteConfirm: (title) => `Delete the API key “${title}”?`,
+    apiKeyWord: 'API key',
+    apiSecretWord: 'Secret',
+    listCopyKey: 'Key',
+    listCopySecret: 'Secret',
+    copyKeyTitle: 'Copy API key',
+    copySecretTitle: 'Copy secret',
+    showHideKeyTitle: 'Show or hide the API key',
+    showHideSecretTitle: 'Show or hide the secret',
+    expiryExpired: 'Expired',
+    expiryToday: 'Expires today',
+    expiryDays: (n) => `Expires in ${n} d`,
 
     // Clipboard
     usernameWord: 'Username',
@@ -147,6 +173,9 @@ const STRINGS = {
     expWarningSeeds: 'WARNING: the vault contains SEED PHRASES. The export is COMPLETELY UNENCRYPTED — '
       + 'anyone who gets the file can empty your wallets, and a seed phrase cannot be rotated like a password. '
       + 'Never store the file in the cloud, and securely delete it right after use. Continue anyway?',
+    expWarningApikeys: 'WARNING: the vault contains API KEYS. The export is COMPLETELY UNENCRYPTED — '
+      + 'anyone who gets the file can call services as you. Rotate any key that may have been exposed, '
+      + 'keep the file off the cloud, and securely delete it right after use. Continue anyway?',
     expOk: 'Export unencrypted',
 
     // Upgrade from file
@@ -208,7 +237,7 @@ const STRINGS = {
     newSeed: '+ Seed-fras',
     generator: 'Generator',
     settings: 'Inställningar',
-    emptyNone: 'Inga poster ännu. Klicka på ”+ Inloggning” eller ”+ Seed-fras”.',
+    emptyNone: 'Inga poster ännu. Klicka på ”+ Inloggning”, ”+ Seed-fras” eller ”+ API-nyckel”.',
     emptyNoMatches: 'Inga träffar på sökningen.',
     listCopyUser: 'Anv.',
     listCopyPassword: 'Lösen',
@@ -254,6 +283,32 @@ const STRINGS = {
     seedNoWords: 'Inga ord att kopiera.',
     seedClipboardWarning: 'Seed-fras i urklipp — rensas om 30 s. Klistra aldrig in den på en webbsida.',
     wordAria: (n) => `Ord ${n}`,
+
+    // API key entries
+    newApikey: '+ API-nyckel',
+    apikeyTitleNew: 'Ny API-nyckel',
+    apikeyTitleEdit: 'API-nyckel',
+    labelService: 'Tjänst',
+    servicePlaceholder: 't.ex. Stripe, AWS',
+    labelApiKey: 'API-nyckel',
+    labelApiSecret: 'Secret (valfri)',
+    labelEnvironment: 'Miljö',
+    labelScopes: 'Scopes',
+    scopesPlaceholder: 't.ex. read:users write:orders',
+    labelExpires: 'Går ut (valfritt)',
+    apikeyKeyRequired: 'Fältet API-nyckel måste fyllas i.',
+    apikeyDeleteConfirm: (title) => `Ta bort API-nyckeln ”${title}”?`,
+    apiKeyWord: 'API-nyckel',
+    apiSecretWord: 'Secret',
+    listCopyKey: 'Nyckel',
+    listCopySecret: 'Secret',
+    copyKeyTitle: 'Kopiera API-nyckeln',
+    copySecretTitle: 'Kopiera secret',
+    showHideKeyTitle: 'Visa eller dölj API-nyckeln',
+    showHideSecretTitle: 'Visa eller dölj secret',
+    expiryExpired: 'Utgången',
+    expiryToday: 'Går ut idag',
+    expiryDays: (n) => `Går ut om ${n} d`,
 
     // Clipboard
     usernameWord: 'Användarnamn',
@@ -315,6 +370,9 @@ const STRINGS = {
     expWarningSeeds: 'VARNING: valvet innehåller SEED-FRASER. Exporten är HELT OKRYPTERAD — '
       + 'den som kommer över filen kan tömma dina plånböcker, och en seed-fras kan inte bytas som ett lösenord. '
       + 'Spara aldrig filen i molnet, och radera den säkert direkt efter användning. Fortsätt ändå?',
+    expWarningApikeys: 'VARNING: valvet innehåller API-NYCKLAR. Exporten är HELT OKRYPTERAD — '
+      + 'den som kommer över filen kan anropa tjänster som du. Rotera nycklar som kan ha exponerats, '
+      + 'håll filen borta från molnet och radera den säkert direkt efter användning. Fortsätt ändå?',
     expOk: 'Exportera okrypterat',
 
     // Upgrade from file

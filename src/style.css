@@ -147,6 +147,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   border-radius: 4px;
   padding: 0 .3rem;
 }
+.badge.api { color: var(--accent); border-color: var(--accent); }
+.expiry { flex-shrink: 0; font-size: .75rem; }
+.expiry.warn { color: var(--warn); }
+.expiry.expired { color: var(--danger); font-weight: 700; }
 .seed-words-head { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
 .seed-words-head label { margin: 0; }
 .word-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; margin: .5rem 0; }

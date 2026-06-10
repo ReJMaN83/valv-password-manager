@@ -70,6 +70,11 @@ betyder något, och se Valv som ett komplement.
   derivation path. Sparade fraser öppnas **maskerade**: orden finns inte ens
   i DOM:en förrän du klickar Visa. Sökningen omfattar titel och wallet —
   aldrig orden.
+- **API-nyckelposter** — tjänst, nyckel + valfri secret (maskerade som
+  seed-orden: inte i DOM:en förrän du klickar Visa), miljö, scopes och
+  valfritt utgångsdatum med en diskret går-ut-snart-indikator och en tydlig
+  utgången-markering i listan. Sökningen träffar titel, tjänst och URL —
+  aldrig nyckeln eller secreten.
 - **Lösenordsgenerator** — längd 8–64, teckenklass-val,
   `crypto.getRandomValues` med rejection sampling (ingen modulo-bias).
 - **Auto-lås** efter 1–30 minuters inaktivitet (standard 5), plus manuellt
@@ -121,11 +126,12 @@ att spara och återöppna filen två varv i rad.
 
 ## Tester
 
-- **Node** (`npm test`): 13 tester — encrypt/decrypt-round-trips med fulla
+- **Node** (`npm test`): 15 tester — encrypt/decrypt-round-trips med fulla
   600 000 iterationer, avvisning av fel lösenord och manipulerad data,
   nonce-unikhet, formatversionering, BIP39-validering, bakåtkompatibilitet
-  med valv från äldre versioner, i18n-nyckelparitet.
-- **E2E** (`npm run test:e2e`): 55 kontroller i riktig Chromium — bland dem
+  med valv från äldre versioner, valv med blandade posttyper,
+  i18n-nyckelparitet.
+- **E2E** (`npm run test:e2e`): 73 kontroller i riktig Chromium — bland dem
   projektets kärnkrav: **en sparad fil som öppnas ska fungera identiskt och
   i sin tur kunna spara en fungerande fil.** Sviten kör två fulla
   spara→återöppna-generationer, plus seed-frasmaskering, uppgradera-från-fil,

@@ -405,6 +405,107 @@ check('i18n: the main view is Swedish after unlocking the saved file',
   (await page.textContent('#new-login-btn')) === '+ Inloggning');
 check('i18n: the entry survived language switch + round-trip',
   (await page.textContent('.entry-title')) === 'Language test');
+await page.close();
+
+// ---- API keys: masked fields, expiry indicator, search exclusions, i18n
+const KEY = 'sk_test_abc123xyz789';
+const SECRET = 'whsec_supersecret456';
+const inTenDays = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+const apiShell = path.join(tmp, 'shell-api.html');
+page = await freshShell(apiShell);
+check('apikey: the new-entry button is in English by default',
+  (await page.textContent('#new-apikey-btn')) === '+ API key');
+
+// entry 1: secret + expiry within 30 days
+await page.click('#new-apikey-btn');
+await page.fill('#apikey-title', 'Stripe');
+await page.fill('#apikey-service', 'Stripe Payments');
+await page.fill('#apikey-key', KEY);
+await page.fill('#apikey-secret', SECRET);
+await page.fill('#apikey-environment', 'production');
+await page.fill('#apikey-expires', inTenDays);
+await page.click('#apikey-form button[type=submit]');
+
+// entry 2: expired, no secret
+await page.click('#new-apikey-btn');
+await page.fill('#apikey-title', 'OldAPI');
+await page.fill('#apikey-key', 'old_key_000');
+await page.fill('#apikey-expires', yesterday);
+await page.click('#apikey-form button[type=submit]');
+
+check('apikey: both rows carry the API badge', (await page.locator('.badge.api').count()) === 2);
+const stripeRow = page.locator('#entry-list li', { hasText: 'Stripe' });
+const oldRow = page.locator('#entry-list li', { hasText: 'OldAPI' });
+check('apikey: Key and Secret quick-copy buttons on the row with a secret',
+  (await stripeRow.locator('button').allTextContents()).join(',') === 'Key,Secret');
+check('apikey: no Secret button when the entry has no secret',
+  (await oldRow.locator('button').allTextContents()).join(',') === 'Key');
+check('apikey: subtle indicator for expiry within 30 days',
+  /^Expires in (9|10) d$/.test(await stripeRow.locator('.expiry.warn').textContent()));
+check('apikey: distinct indicator when expired',
+  (await oldRow.locator('.expiry.expired').textContent()) === 'Expired');
+
+// search: service matches, key/secret never do
+await page.fill('#search', 'payments');
+check('apikey: search matches the service', (await page.locator('#entry-list li').count()) === 1);
+await page.fill('#search', 'sk_test');
+check('apikey: search NEVER matches the key', (await page.locator('#entry-list li').count()) === 0);
+await page.fill('#search', 'whsec');
+check('apikey: search NEVER matches the secret', (await page.locator('#entry-list li').count()) === 0);
+await page.fill('#search', '');
+
+// save -> reopen: masked by default, Show reveals, values never in file/DOM
+const genApi = path.join(tmp, 'gen-api.html');
+await saveAndCapture(page, genApi);
+await page.close();
+
+const genApiSrc = readFileSync(genApi, 'utf8');
+check('apikey: key and secret are not in the saved file in plaintext',
+  !genApiSrc.includes(KEY) && !genApiSrc.includes(SECRET));
+
+page = await ctx.newPage();
+await page.goto('file://' + genApi);
+await page.fill('#unlock-password', PW2);
+await page.click('#unlock-btn');
+await page.waitForSelector('#main-screen', { state: 'visible' });
+await page.locator('#entry-list li', { hasText: 'Stripe' }).click();
+await page.waitForSelector('#apikey-dialog[open]');
+const apiMasked = await page.evaluate(([key, secret]) => {
+  const keyField = document.getElementById('apikey-key');
+  const secretField = document.getElementById('apikey-secret');
+  const dialogText = document.querySelector('#apikey-dialog').textContent;
+  return {
+    masked: keyField.value === '' && keyField.placeholder === '••••••••' && keyField.readOnly
+      && secretField.value === '' && secretField.placeholder === '••••••••' && secretField.readOnly,
+    inDom: Array.from(document.querySelectorAll('input, textarea'))
+        .some((i) => i.value.includes(key) || i.value.includes(secret))
+      || dialogText.includes(key) || dialogText.includes(secret),
+  };
+}, [KEY, SECRET]);
+check('apikey: key and secret fields are masked by default after round-trip', apiMasked.masked);
+check('apikey: the values are NOT in the DOM before Show', !apiMasked.inDom);
+check('apikey: other fields came along',
+  (await page.inputValue('#apikey-service')) === 'Stripe Payments'
+  && (await page.inputValue('#apikey-environment')) === 'production');
+
+await page.click('#apikey-toggle-key');
+check('apikey: Show reveals the key', (await page.inputValue('#apikey-key')) === KEY);
+await page.click('#apikey-toggle-secret');
+check('apikey: Show reveals the secret', (await page.inputValue('#apikey-secret')) === SECRET);
+await page.click('#apikey-toggle-key');
+check('apikey: Hide empties the key field again', (await page.inputValue('#apikey-key')) === '');
+await page.click('#apikey-cancel');
+
+// i18n: the API key strings switch with the language
+await page.click('#settings-btn');
+await page.selectOption('#language-select', 'sv');
+await page.click('#settings-close');
+check('apikey: the new-entry button switches to Swedish',
+  (await page.textContent('#new-apikey-btn')) === '+ API-nyckel');
+check('apikey: the expiry indicator switches to Swedish',
+  (await page.locator('#entry-list li', { hasText: 'OldAPI' }).locator('.expiry.expired').textContent()) === 'Utgången');
 
 await page.close();
 await browser.close();

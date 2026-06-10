@@ -102,6 +102,60 @@ test('round-trip with a seed entry', async () => {
   assert.deepEqual(decrypted.entries[1], loginEntry);
 });
 
+test('round-trip with an API key entry', async () => {
+  const apikeyEntry = {
+    id: '44444444-4444-4444-8444-444444444444',
+    type: 'apikey',
+    title: 'Stripe',
+    service: 'Stripe Payments',
+    // Deliberately NOT shaped like a real provider key (no sk_test_/AKIA…
+    // prefix): GitHub push protection pattern-matches those even in fixtures.
+    key: 'valv-example-key-4eC39HqLyjWDarjt',
+    secret: 'valv-example-webhook-secret-123',
+    environment: 'test',
+    scopes: 'read:charges write:charges',
+    expires: '2027-01-01',
+    url: 'https://dashboard.stripe.com',
+    notes: 'CI account',
+    created: '2026-06-10T00:00:00Z',
+    modified: '2026-06-10T00:00:00Z',
+  };
+  const payload = JSON.stringify({ entries: [apikeyEntry], meta: {} });
+  const blob = await encryptVault('password', payload, FAST_ITER);
+  const decrypted = JSON.parse(await decryptVault('password', blob));
+  assert.deepEqual(decrypted.entries[0], apikeyEntry);
+  // normalizeEntry must leave explicitly typed entries untouched
+  assert.deepEqual(decrypted.entries.map(normalizeEntry)[0], apikeyEntry);
+});
+
+test('mixed vault with all three entry types survives open/save/reopen', async () => {
+  const entries = [
+    { id: 'a0000000-0000-4000-8000-000000000001', title: 'Old login (no type)',
+      username: 'alice', password: 'pw1', url: '', notes: '',
+      created: '2026-01-01T00:00:00Z', modified: '2026-01-01T00:00:00Z' },
+    { id: 'a0000000-0000-4000-8000-000000000002', type: 'seed', title: 'Wallet',
+      wallet: 'Ledger', words: parseSeedPhrase('legal winner thank year wave sausage worth useful legal winner thank yellow'),
+      passphrase: '', derivation: '', notes: '',
+      created: '2026-01-01T00:00:00Z', modified: '2026-01-01T00:00:00Z' },
+    { id: 'a0000000-0000-4000-8000-000000000003', type: 'apikey', title: 'AWS',
+      service: 'AWS', key: 'EXAMPLE-ACCESS-KEY-ID-1234', secret: 'example/secret/access/key',
+      environment: 'production', scopes: '', expires: '', url: '', notes: '',
+      created: '2026-01-01T00:00:00Z', modified: '2026-01-01T00:00:00Z' },
+  ];
+  const blob = await encryptVault('password', JSON.stringify({ entries, meta: {} }), FAST_ITER);
+  const opened = JSON.parse(await decryptVault('password', blob)).entries.map(normalizeEntry);
+  assert.equal(opened[0].type, 'login');   // untyped entry normalized
+  assert.equal(opened[1].type, 'seed');    // explicit types untouched
+  assert.equal(opened[2].type, 'apikey');
+  assert.deepEqual(opened[1], entries[1]);
+  assert.deepEqual(opened[2], entries[2]);
+
+  // re-save and reopen — no changes, no data loss
+  const blob2 = await encryptVault('password', JSON.stringify({ entries: opened, meta: {} }), FAST_ITER);
+  const reopened = JSON.parse(await decryptVault('password', blob2)).entries.map(normalizeEntry);
+  assert.deepEqual(reopened, opened);
+});
+
 test('backward compatibility: vault from an old version (no type field)', async () => {
   // exactly the payload shape the app wrote before seed support existed
   const oldEntry = {
