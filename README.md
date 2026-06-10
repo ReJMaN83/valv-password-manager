@@ -23,8 +23,9 @@ offline genom att du dubbelklickar på filen.
 2. **Första gången:** välj ett master-lösenord (minst 8 tecken) och klicka
    *Skapa valv*. Klicka sedan **Spara** för att skriva valvet till fil.
 3. **Därefter:** skriv ditt master-lösenord och tryck Enter.
-4. Lägg till poster med *+ Ny post*. Sök i realtid, kopiera användarnamn
-   och lösenord med knapparna (urklippet rensas automatiskt efter 30 s).
+4. Lägg till poster med *+ Inloggning* eller *+ Seed-fras*. Sök i realtid,
+   kopiera användarnamn och lösenord med knapparna (urklippet rensas
+   automatiskt efter 30 s).
 5. Klicka **Spara** efter ändringar:
    - I Chrome/Edge kan filen skrivas över direkt (File System Access API).
    - I Firefox/Safari laddas en ny `valv.html` ner — **ersätt din gamla
@@ -34,6 +35,26 @@ offline genom att du dubbelklickar på filen.
 7. Valvet låser sig själv efter inaktivitet (standard 5 min, ställbart
    1–30 min under *Inställningar*). Osparade ändringar överlever ett lås —
    de ligger kvar krypterade i sidan — men inte att fliken stängs.
+
+### Seed-fraser (kryptoplånböcker)
+
+Valv kan även lagra BIP39-seed-fraser (12/15/18/21/24 ord) med valfri
+passphrase och derivation path. Orden visas i en numrerad grid — ordningen
+är avgörande — och valideras mot den engelska BIP39-ordlistan (okända ord
+varnas men blockeras inte; andra ordlistor och språk förekommer). Klistra
+in hela frasen i första ordfältet så fylls alla fält i automatiskt.
+
+Sparade seed-poster öppnas alltid **dolda**: orden finns inte ens i sidans
+DOM förrän du klickar *Visa*. Sökningen omfattar bara titel och wallet —
+aldrig orden själva.
+
+**Tänk på:** en seed-fras är känsligare än ett lösenord — den kan inte
+bytas ut om den läcker; den som har frasen har plånboken, för alltid.
+För större innehav bör ett digitalt valv som detta vara ett *komplement*:
+ha den primära backupen på papper eller metall, offline. Klistra aldrig
+in en seed-fras på en webbsida — Valv varnar när frasen kopieras och
+rensar urklippet efter 30 s, men urklippshistorik kan finnas kvar i ditt
+operativsystem.
 
 ## Backup
 
@@ -71,6 +92,11 @@ komplett, krypterat valv. Spara gärna flera generationer.
   den, och öppna inga kopior du inte litar på.
 - Svaga master-lösenord — välj långt och unikt.
 - Att du glömmer master-lösenordet (se ovan).
+- Konsekvenserna av en läckt **seed-fras**: ett lösenord kan roteras efter
+  ett intrång, en seed-fras kan det inte — skadan är permanent och
+  ekonomisk. Digital lagring av seed-fraser höjer alltid risken jämfört
+  med papper/metall offline; använd Valv som komplement, inte som enda
+  kopia, för innehav som betyder något.
 
 **Tekniska begränsningar (best effort):**
 
@@ -125,6 +151,11 @@ serialisering är stabil mellan generationer, vilket E2E-testet verifierar
 - [ ] **Auto-lås:** ställ 1 min, vänta — valvet låser sig.
 - [ ] **Kopiera:** kopiera lösenord, klistra in; efter 30 s är urklippet tomt.
 - [ ] **Generator:** längd och teckentyper påverkar resultatet.
+- [ ] **Seed-post:** skapa med inklistrad fras (fälten fylls i), spara,
+      öppna sparad fil → orden dolda tills *Visa*, rätt ordning, felstavat
+      ord ger röd kant men går att spara.
+- [ ] **Gammalt valv:** en fil sparad före seed-stödet låses upp och
+      sparas om utan att poster förloras.
 - [ ] **Byt lösenord:** kräver rätt nuvarande; gamla filen på disk öppnas
       med gamla lösenordet, nysparad fil med det nya.
 - [ ] **Export:** varningsdialog visas; JSON innehåller posterna.

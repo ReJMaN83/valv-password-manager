@@ -74,7 +74,7 @@ await page.waitForSelector('#main-screen', { state: 'visible' });
 check('gen1: huvudvyn visas efter skapande', true);
 check('gen1: osparat-indikatorn visas', await page.isVisible('#dirty-indicator'));
 
-await page.click('#new-entry-btn');
+await page.click('#new-login-btn');
 await page.fill('#entry-title', 'Banken <script>alert(1)</script>');
 await page.fill('#entry-username', 'daniel');
 await page.fill('#entry-password', 'hemligt!');
@@ -110,7 +110,7 @@ const gen2src = readFileSync(gen2, 'utf8');
 check('gen2: inga klartextlösenord i filen', !gen2src.includes('hemligt!') && !gen2src.includes('Banken <script>'));
 check('gen2: ingen extern referens i filen', !/(?:src|href)\s*=\s*["']https?:/i.test(gen2src));
 
-await page.click('#new-entry-btn');
+await page.click('#new-login-btn');
 await page.fill('#entry-title', 'E-post');
 await page.fill('#entry-username', 'daniel.sahlin');
 await page.fill('#entry-password', 'annat-lösenord');
@@ -121,23 +121,89 @@ await page.fill('#search', 'banken');
 check('gen2: sökningen filtrerar', (await page.locator('#entry-list li').count()) === 1);
 await page.fill('#search', '');
 
+// ---- Seed-post: skapa via inklistring av hel fras
+// OBS: frasen är medvetet INTE i alfabetisk ordning — BIP39-listan ligger
+// inlinad (alfabetiskt) i appkoden, så en alfabetisk fras vore en substring
+// av filen och klartextkontrollerna nedan skulle bli meningslösa.
+const PHRASE = 'zoo wine vivid urge tape sugar response oxygen muscle legend item glove';
+const SEED_WORDS = PHRASE.split(' ');
+await page.click('#new-seed-btn');
+await page.fill('#seed-title', 'Ledger');
+await page.fill('#seed-wallet', 'Ledger Nano X');
+await page.evaluate((phrase) => {
+  const input = document.querySelector('#seed-grid input');
+  const dt = new DataTransfer();
+  dt.setData('text/plain', phrase);
+  input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+}, PHRASE.toUpperCase()); // versaler: testar trim + lowercase
+const pasted = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
+check('gen2: inklistrad fras splittas till 12 gemena ord', pasted.join(' ') === PHRASE);
+check('gen2: inga BIP39-varningar för giltiga ord', !(await page.isVisible('#seed-warning')));
+await page.click('#seed-form button[type=submit]');
+check('gen2: seed-posten har badge i listan', (await page.textContent('.badge')).includes('SEED'));
+
+// sök träffar wallet — men aldrig orden
+await page.fill('#search', 'nano');
+check('gen2: sök träffar wallet för seed-post', (await page.locator('#entry-list li').count()) === 1);
+await page.fill('#search', 'zoo');
+check('gen2: sök träffar ALDRIG seed-orden', (await page.locator('#entry-list li').count()) === 0);
+await page.fill('#search', '');
+
 const gen3 = path.join(tmp, 'gen3.html');
 await saveAndCapture(page, gen3);
 await page.close();
 
 // ---- Generation 3: andra round-trip-varvet
+const gen3src = readFileSync(gen3, 'utf8');
+check('gen3: seed-frasen och wallet finns inte i klartext i den sparade filen',
+  !gen3src.includes(PHRASE) && !gen3src.includes('zoo wine') && !gen3src.includes('Ledger Nano X'));
+
 page = await ctx.newPage();
 await page.goto('file://' + gen3);
 await page.fill('#unlock-password', PW);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
-check('gen3: båda posterna finns efter andra varvet',
-  (await page.locator('#entry-list li').count()) === 2);
+check('gen3: alla tre posterna finns efter andra varvet',
+  (await page.locator('#entry-list li').count()) === 3);
 const titles = await page.locator('.entry-title').allTextContents();
-check('gen3: sorterad A–Ö', titles[0] === 'Banken <script>alert(1)</script>' && titles[1] === 'E-post');
+check('gen3: sorterad A–Ö', titles[0] === 'Banken <script>alert(1)</script>'
+  && titles[1] === 'E-post' && titles[2] === 'Ledger');
+
+// ---- Seed-post efter round-trip: dold som default, Visa ger rätt ordning
+await page.click('#entry-list li:has(.badge)');
+await page.waitForSelector('#seed-dialog[open]');
+const masked = await page.evaluate((words) => {
+  const inputs = Array.from(document.querySelectorAll('#seed-grid input'));
+  // dialogens textContent innehåller inga script — body:s gör det (BIP39-listan)
+  const dialogText = document.querySelector('#seed-dialog').textContent;
+  return {
+    count: inputs.length,
+    allEmpty: inputs.every((i) => i.value === '' && i.placeholder === '•••••'),
+    inDom: Array.from(document.querySelectorAll('input, textarea'))
+        .some((i) => words.some((w) => i.value.includes(w)))
+      || words.some((w) => dialogText.includes(w)),
+  };
+}, SEED_WORDS);
+check('gen3: 12 numrerade fält, dolda som default (placeholder, tomma värden)',
+  masked.count === 12 && masked.allEmpty);
+check('gen3: orden finns INTE i DOM:en före Visa', !masked.inDom);
+check('gen3: wallet-fältet följde med', (await page.inputValue('#seed-wallet')) === 'Ledger Nano X');
+
+await page.click('#seed-toggle');
+const shown = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('#seed-grid input')).map((i) => i.value));
+check('gen3: Visa ger alla 12 ord i rätt ordning', shown.join(' ') === PHRASE);
+const nums = await page.locator('#seed-grid .word-num').allTextContents();
+check('gen3: numreringen är 1–12 i ordning', nums.join(',') === '1,2,3,4,5,6,7,8,9,10,11,12');
+await page.click('#seed-toggle');
+const remasked = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('#seed-grid input')).every((i) => i.value === ''));
+check('gen3: Dölj tömmer fälten igen', remasked);
+await page.click('#seed-cancel');
 
 // lås/upplås i samma session med osparad ändring
-await page.click('#new-entry-btn');
+await page.click('#new-login-btn');
 await page.fill('#entry-title', 'Wifi');
 await page.fill('#entry-password', 'wifi-pw');
 await page.click('#entry-form button[type=submit]');
@@ -149,7 +215,7 @@ await page.fill('#unlock-password', PW);
 await page.click('#unlock-btn');
 await page.waitForSelector('#main-screen', { state: 'visible' });
 check('gen3: osparad ändring överlevde lås/upplås (krypterat i DOM)',
-  (await page.locator('#entry-list li').count()) === 3);
+  (await page.locator('#entry-list li').count()) === 4);
 check('gen3: osparat-indikatorn kvar efter lås/upplås', await page.isVisible('#dirty-indicator'));
 
 // generator
